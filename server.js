@@ -177,6 +177,11 @@ app.delete('/api/admin/dates/:id', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+app.patch('/api/admin/dates/:id/notified', requireAuth, (req, res) => {
+  queries.setClinicNotified(Number(req.params.id), req.body.value);
+  res.json({ ok: true });
+});
+
 app.get('/api/admin/week', requireAuth, (req, res) => {
   const { start } = req.query;
   let startDate;

@@ -63,6 +63,12 @@ function initDb() {
   // Altijd Youzz op 0 zetten (ook bij verse installatie)
   db.prepare("UPDATE clinics SET allow_public_signup = 0 WHERE name LIKE '%Youzz%'").run();
 
+  // Migration: clinic_notified column
+  try {
+    db.exec("ALTER TABLE dates ADD COLUMN clinic_notified INTEGER DEFAULT 0");
+    console.log('Migratie: clinic_notified kolom toegevoegd');
+  } catch (_) { /* kolom bestaat al */ }
+
   const adminExists = db.prepare('SELECT id FROM users WHERE username = ?').get('admin');
   if (!adminExists) {
     db.prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)')
@@ -316,9 +322,13 @@ const queries = {
   },
 
   // Admin – Week overview
+  setClinicNotified(dateId, value) {
+    db.prepare('UPDATE dates SET clinic_notified = ? WHERE id = ?').run(value ? 1 : 0, dateId);
+  },
+
   getWeekDates(startISO, endISO) {
     const dates = db.prepare(`
-      SELECT d.id, d.date, d.status,
+      SELECT d.id, d.date, d.status, d.clinic_notified,
         c.id as clinic_id, c.name as clinic_name, c.address, c.time,
         c.contact_name, c.contact_info,
         r.id as reg_id

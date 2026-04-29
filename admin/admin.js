@@ -584,6 +584,11 @@ function renderWeekEntry(entry) {
             ${entry.contact_name ? `<span class="contact-info-item"><strong>${esc(entry.contact_name)}</strong></span>` : ''}
             ${entry.contact_info ? `<span class="contact-info-item contact-info-copyable" title="Klik om te kopiëren" onclick="copyContactInfo(this)">${esc(entry.contact_info)}</span>` : ''}
           </div>` : ''}
+          <label class="notified-check ${entry.clinic_notified ? 'is-notified' : ''}" onclick="toggleNotified(this, ${entry.id})">
+            <input type="checkbox" ${entry.clinic_notified ? 'checked' : ''} style="display:none">
+            <span class="notified-box">${entry.clinic_notified ? '✓' : ''}</span>
+            <span class="notified-text">${entry.clinic_notified ? 'Aangemeld bij kliniek' : 'Nog niet aangemeld bij kliniek'}</span>
+          </label>
           <div class="msg-block">
             <div class="msg-label">
               Bericht 2 — Aanmelding bij kliniek
@@ -627,6 +632,20 @@ function copyMsg(btn) {
     btn.textContent = '✓ Gekopieerd';
     btn.classList.add('copied');
     setTimeout(() => { btn.textContent = 'Kopiëren'; btn.classList.remove('copied'); }, 2000);
+  });
+}
+
+async function toggleNotified(label, dateId) {
+  const checkbox = label.querySelector('input');
+  const newVal = !checkbox.checked;
+  checkbox.checked = newVal;
+  label.classList.toggle('is-notified', newVal);
+  label.querySelector('.notified-box').textContent = newVal ? '✓' : '';
+  label.querySelector('.notified-text').textContent = newVal ? 'Aangemeld bij kliniek' : 'Nog niet aangemeld bij kliniek';
+  await fetch(`/api/admin/dates/${dateId}/notified`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ value: newVal }),
   });
 }
 
