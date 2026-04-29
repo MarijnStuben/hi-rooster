@@ -578,6 +578,12 @@ function renderWeekEntry(entry) {
             </div>
             <textarea class="msg-textarea" rows="3">${esc(msg1)}</textarea>
           </div>
+          ${entry.contact_info || entry.contact_name ? `
+          <div class="contact-info-block">
+            <span class="contact-info-label">📞 Contact kliniek</span>
+            ${entry.contact_name ? `<span class="contact-info-item"><strong>${esc(entry.contact_name)}</strong></span>` : ''}
+            ${entry.contact_info ? `<span class="contact-info-item contact-info-copyable" title="Klik om te kopiëren" onclick="copyContactInfo(this)">${esc(entry.contact_info)}</span>` : ''}
+          </div>` : ''}
           <div class="msg-block">
             <div class="msg-label">
               Bericht 2 — Aanmelding bij kliniek
@@ -626,6 +632,14 @@ function copyMsg(btn) {
     btn.textContent = '✓ Gekopieerd';
     btn.classList.add('copied');
     setTimeout(() => { btn.textContent = 'Kopiëren'; btn.classList.remove('copied'); }, 2000);
+  });
+}
+
+function copyContactInfo(el) {
+  navigator.clipboard.writeText(el.textContent).then(() => {
+    const orig = el.textContent;
+    el.textContent = '✓ Gekopieerd!';
+    setTimeout(() => { el.textContent = orig; }, 2000);
   });
 }
 

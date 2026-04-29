@@ -276,6 +276,39 @@ body {
   font-size: 0.875rem;
 }
 
+.contact-info-block {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--blue-light);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.contact-info-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--blue);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  margin-right: 4px;
+}
+.contact-info-item {
+  font-size: 0.875rem;
+  color: var(--dark);
+}
+.contact-info-copyable {
+  cursor: pointer;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 8px;
+  transition: background .15s;
+}
+.contact-info-copyable:hover { background: var(--grey-light); }
+
 .msg-block { margin-top: 12px; }
 .msg-block + .msg-block { margin-top: 10px; }
 .msg-label {
