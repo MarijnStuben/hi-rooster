@@ -612,7 +612,12 @@ function buildMsg2(entry) {
     const tel = p.phone || p.mobile || '';
     return `${naam}, geb. ${gbd}${tel ? ', ' + tel : ''}`;
   }).join('\n- ');
-  return `Beste ${contact},\n\nWij willen ons aanmelden voor ${datum} om ${tijd} bij ${kliniek}.\n\nDe vrijwilligers zijn:\n- ${vrijwilligers}\n\nMet vriendelijke groet,\nH&I`;
+  const contactRegel = entry.contact_info
+    ? `\nContactpersoon: ${entry.contact_name || '—'}\nContactgegevens: ${entry.contact_info}\n`
+    : entry.contact_name
+      ? `\nContactpersoon: ${entry.contact_name}\n`
+      : '';
+  return `Beste ${contact},\n\nWij willen ons aanmelden voor ${datum} om ${tijd} bij ${kliniek}.${contactRegel}\n\nDe vrijwilligers zijn:\n- ${vrijwilligers}\n\nMet vriendelijke groet,\nH&I`;
 }
 
 function copyMsg(btn) {
