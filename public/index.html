@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>H&I Voorlichtingsrooster</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <h1>H&amp;I Voorlichtingsrooster</h1>
+      <p class="header-sub">Meld je aan voor een voorlichting in een van de klinieken</p>
+    </div>
+  </header>
+
+  <main id="main">
+    <div class="loading">Rooster laden…</div>
+  </main>
+
+  <!-- Aanmeldmodal -->
+  <div id="modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal">
+      <button class="modal-close" id="modal-close" aria-label="Sluiten">&times;</button>
+      <h2 id="modal-title">Aanmelden</h2>
+
+      <div class="modal-info">
+        <div class="info-row"><span class="info-label">Kliniek:</span> <strong id="form-clinic-name"></strong></div>
+        <div class="info-row"><span class="info-label">Datum:</span> <strong id="form-date-display"></strong></div>
+        <div class="info-row"><span class="info-label">Tijdstip:</span> <strong id="form-time-display"></strong></div>
+      </div>
+
+      <form id="reg-form" novalidate>
+        <input type="hidden" id="form-date-id">
+
+        <fieldset>
+          <legend>Persoon 1 <span class="required-note">* verplicht</span></legend>
+          <div class="form-row">
+            <label>Voornaam *<input type="text" name="p1_first_name" required></label>
+            <label>Achternaam *<input type="text" name="p1_last_name" required></label>
+          </div>
+          <div class="form-row">
+            <label>Geboortedatum *<input type="date" name="p1_birth_date" required></label>
+          </div>
+          <div class="form-row">
+            <label>Telefoonnummer *<input type="tel" name="p1_phone" placeholder="bijv. 06-12345678" required></label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Persoon 2 <span class="required-note">* verplicht</span></legend>
+          <div class="form-row">
+            <label>Voornaam *<input type="text" name="p2_first_name" required></label>
+            <label>Achternaam *<input type="text" name="p2_last_name" required></label>
+          </div>
+          <div class="form-row">
+            <label>Geboortedatum *<input type="date" name="p2_birth_date" required></label>
+            <label>Telefoonnummer<input type="tel" name="p2_phone" placeholder="optioneel"></label>
+          </div>
+        </fieldset>
+
+        <div id="p3-toggle-row">
+          <button type="button" id="add-p3-btn" class="btn-secondary">+ Persoon 3 toevoegen</button>
+        </div>
+
+        <fieldset id="p3-fieldset" class="hidden">
+          <legend>Persoon 3 <span class="optional-note">(optioneel)</span></legend>
+          <div class="form-row">
+            <label>Voornaam<input type="text" name="p3_first_name"></label>
+            <label>Achternaam<input type="text" name="p3_last_name"></label>
+          </div>
+          <div class="form-row">
+            <label>Geboortedatum<input type="date" name="p3_birth_date"></label>
+          </div>
+          <button type="button" id="remove-p3-btn" class="btn-link">Persoon 3 verwijderen</button>
+        </fieldset>
+
+        <div id="form-error" class="form-error hidden"></div>
+
+        <div class="form-actions">
+          <button type="button" class="btn-secondary" id="form-cancel">Annuleren</button>
+          <button type="submit" class="btn-primary" id="form-submit">Aanmelden</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Succesmelding -->
+  <div id="success-toast" class="toast hidden">
+    Aanmelding ontvangen! Je staat nu in de wachtrij.
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

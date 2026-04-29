@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/marijnstubenitsky/Library/Application Support/Claude/local-agent-mode-sessions/skills-plugin/4786c9ab-9fd5-493b-86ec-4c3bf375540a/f20f03a7-bdd8-414c-b274-5e2a786c9abe/skills/docx/**)",
+      "Bash(python scripts/office/unpack.py \"/Users/marijnstubenitsky/Downloads/HI 2026 \\(1\\).docx\" /tmp/hi_docx_unpacked/)",
+      "Bash(python3 scripts/office/unpack.py \"/Users/marijnstubenitsky/Downloads/HI 2026 \\(1\\).docx\" /tmp/hi_docx_unpacked/)",
+      "Bash(pip3 install *)",
+      "Bash(pandoc \"/Users/marijnstubenitsky/Downloads/HI 2026 \\(1\\).docx\" -t markdown)",
+      "Bash(python3 -c ' *)",
+      "Bash(npm install *)",
+      "Read(//usr/local/bin/**)",
+      "Bash(/opt/homebrew/bin/node --version)",
+      "Bash(command -v node)",
+      "Read(//usr/bin/**)",
+      "Read(//Users/marijnstubenitsky/Library/Caches/ms-playwright-go/1.50.1/**)",
+      "Bash(~/Library/Caches/ms-playwright-go/1.50.1/node --version)",
+      "Bash(find __TRACKED_VAR__/Library/Caches/ms-playwright-go -name npm find __TRACKED_VAR__/Library/Caches/ms-playwright-go -name npm_modules -type d)",
+      "Bash(/opt/homebrew/bin/brew --version)",
+      "Bash(brew --version)",
+      "Read(//Users/marijnstubenitsky/.volta/**)",
+      "Read(//Users/marijnstubenitsky/**)",
+      "Bash(tar -xzf /tmp/node-install/node.tar.gz -C /tmp/node-install --strip-components=1)",
+      "Bash(/tmp/node-install/bin/node --version)",
+      "Bash(/tmp/node-install/bin/npm --version)",
+      "Bash(export PATH=\"/tmp/node-install/bin:$PATH\")",
+      "Bash(curl -s http://localhost:3000/)",
+      "Bash(curl -s -X POST http://localhost:3000/api/admin/login -H 'Content-Type: application/json' -d '{\"username\":\"admin\",\"password\":\"admin123\"}')",
+      "Bash(curl -s http://localhost:3000/api/clinics)",
+      "Bash(curl -s -X POST http://localhost:3000/api/registrations -H 'Content-Type: application/json' -d '{ *)",
+      "Bash(curl -s -b /tmp/cookies.txt http://localhost:3000/api/admin/queue)",
+      "Bash(chmod +x \"/Users/marijnstubenitsky/Claude - Co Work/H&I website/start.sh\")",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(pkill -f \"node server.js\")",
+      "Bash(ssh-keygen -t ed25519 -C \"marijnstubenitsky@gmail.com\" -f ~/.ssh/id_ed25519 -N \"\")",
+      "Bash(git init *)",
+      "Bash(git add *)",
+      "Bash(rm \"/Users/marijnstubenitsky/Claude - Co Work/H&I website/.git/index.lock\")",
+      "Bash(git commit *)"
+    ]
+  }
+}

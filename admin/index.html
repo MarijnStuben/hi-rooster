@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>H&I Beheer</title>
+  <link rel="stylesheet" href="/admin/admin.css">
+</head>
+<body>
+
+  <!-- Login scherm -->
+  <div id="login-screen" class="login-screen hidden">
+    <div class="login-box">
+      <h1>H&amp;I Beheer</h1>
+      <p class="login-sub">Log in om het rooster te beheren</p>
+      <form id="login-form" novalidate>
+        <label>Gebruikersnaam<input type="text" id="login-user" autocomplete="username" required></label>
+        <label>Wachtwoord<input type="password" id="login-pass" autocomplete="current-password" required></label>
+        <div id="login-error" class="error-msg hidden"></div>
+        <button type="submit" class="btn-primary full">Inloggen</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Admin panel -->
+  <div id="admin-panel" class="hidden">
+    <nav class="admin-nav">
+      <div class="nav-brand">H&amp;I Beheer</div>
+      <div class="nav-links">
+        <button class="nav-btn active" data-view="queue">
+          Wachtrij <span id="queue-badge" class="badge hidden">0</span>
+        </button>
+        <button class="nav-btn" data-view="clinics">Klinieken</button>
+        <button class="nav-btn" data-view="week">Weekoverzicht</button>
+      </div>
+      <div class="nav-user">
+        <span id="nav-username"></span>
+        <button id="logout-btn" class="btn-logout">Uitloggen</button>
+      </div>
+    </nav>
+
+    <!-- Wachtrij view -->
+    <div id="view-queue" class="view">
+      <div class="view-header">
+        <h2>Wachtrij</h2>
+        <button class="btn-secondary" onclick="loadQueue()">↻ Vernieuwen</button>
+      </div>
+      <div id="queue-content"></div>
+    </div>
+
+    <!-- Klinieken view -->
+    <div id="view-clinics" class="view hidden">
+      <div class="view-header">
+        <h2>Klinieken</h2>
+        <button class="btn-primary" onclick="openClinicModal()">+ Nieuwe kliniek</button>
+      </div>
+      <div id="clinics-content"></div>
+    </div>
+
+    <!-- Weekoverzicht view -->
+    <div id="view-week" class="view hidden">
+      <div class="view-header">
+        <h2>Weekoverzicht</h2>
+        <div class="week-nav">
+          <button class="btn-secondary" id="week-prev">← Vorige week</button>
+          <span id="week-label"></span>
+          <button class="btn-secondary" id="week-next">Volgende week →</button>
+        </div>
+      </div>
+      <div id="week-content"></div>
+    </div>
+  </div>
+
+  <!-- Kliniek modal -->
+  <div id="clinic-modal-overlay" class="modal-overlay hidden">
+    <div class="modal">
+      <button class="modal-close" onclick="closeClinicModal()">&times;</button>
+      <h2 id="clinic-modal-title">Nieuwe kliniek</h2>
+      <form id="clinic-form" novalidate>
+        <input type="hidden" id="clinic-id">
+        <div class="form-grid">
+          <label class="full">Naam *<input type="text" id="c-name" required></label>
+          <label class="full">Adres<input type="text" id="c-address" placeholder="Straat, Stad"></label>
+          <label>Frequentie<input type="text" id="c-freq" placeholder="bijv. elke eerste maandag"></label>
+          <label>Tijdstip<input type="text" id="c-time" placeholder="bijv. 20:00–21:00"></label>
+          <label>Contactpersoon kliniek<input type="text" id="c-contact-name"></label>
+          <label>Telefoonnummer / e-mail<input type="text" id="c-contact-info"></label>
+          <label class="full checkbox-label">
+            <input type="checkbox" id="c-public-signup" checked>
+            Publieke aanmeldingen toestaan
+          </label>
+        </div>
+        <div id="clinic-form-error" class="error-msg hidden"></div>
+        <div class="form-actions">
+          <button type="button" class="btn-secondary" onclick="closeClinicModal()">Annuleren</button>
+          <button type="submit" class="btn-primary">Opslaan</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Datum toevoegen modal -->
+  <div id="date-modal-overlay" class="modal-overlay hidden">
+    <div class="modal" style="max-width:380px">
+      <button class="modal-close" onclick="closeDateModal()">&times;</button>
+      <h2>Datum toevoegen</h2>
+      <p id="date-modal-clinic" style="color:var(--grey);margin-bottom:16px;font-size:.9rem"></p>
+      <input type="hidden" id="date-clinic-id">
+      <label style="font-size:.875rem;font-weight:500;color:var(--grey)">Datum
+        <input type="date" id="date-input" style="display:block;width:100%;margin-top:4px;padding:8px 10px;border:1px solid var(--border);border-radius:5px;font-size:.9rem">
+      </label>
+      <div id="date-form-error" class="error-msg hidden" style="margin-top:10px"></div>
+      <div class="form-actions" style="margin-top:16px">
+        <button class="btn-secondary" onclick="closeDateModal()">Annuleren</button>
+        <button class="btn-primary" onclick="submitAddDate()">Toevoegen</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Aanmelding bewerken modal -->
+  <div id="edit-reg-overlay" class="modal-overlay hidden">
+    <div class="modal" style="max-width:580px">
+      <button class="modal-close" onclick="closeEditRegModal()">&times;</button>
+      <h2>Aanmelding bewerken</h2>
+      <div id="edit-reg-info" style="background:var(--blue-light);border-radius:6px;padding:10px 14px;margin-bottom:18px;font-size:.875rem;color:var(--grey)"></div>
+      <input type="hidden" id="edit-reg-id">
+      <input type="hidden" id="edit-reg-date-id">
+
+      <fieldset style="border:1px solid var(--border);border-radius:6px;padding:14px 16px;margin-bottom:14px">
+        <legend style="font-weight:600;font-size:.9rem;padding:0 6px;color:var(--blue)">Persoon 1</legend>
+        <div class="edit-form-row">
+          <label>Voornaam *<input type="text" id="e-p1-fn" required></label>
+          <label>Achternaam *<input type="text" id="e-p1-ln" required></label>
+        </div>
+        <div class="edit-form-row">
+          <label>Geboortedatum *<input type="date" id="e-p1-bd" required></label>
+          <label>Telefoonnummer *<input type="tel" id="e-p1-phone" placeholder="bijv. 06-12345678"></label>
+        </div>
+      </fieldset>
+
+      <fieldset style="border:1px solid var(--border);border-radius:6px;padding:14px 16px;margin-bottom:14px">
+        <legend style="font-weight:600;font-size:.9rem;padding:0 6px;color:var(--blue)">Persoon 2</legend>
+        <div class="edit-form-row">
+          <label>Voornaam *<input type="text" id="e-p2-fn" required></label>
+          <label>Achternaam *<input type="text" id="e-p2-ln" required></label>
+        </div>
+        <div class="edit-form-row">
+          <label>Geboortedatum *<input type="date" id="e-p2-bd" required></label>
+          <label>Telefoonnummer<input type="tel" id="e-p2-phone"></label>
+        </div>
+      </fieldset>
+
+      <fieldset id="edit-p3-fieldset" style="border:1px solid var(--border);border-radius:6px;padding:14px 16px;margin-bottom:14px">
+        <legend style="font-weight:600;font-size:.9rem;padding:0 6px;color:var(--blue)">Persoon 3 <span style="font-weight:400;color:var(--grey);font-size:.8rem">(optioneel)</span></legend>
+        <div class="edit-form-row">
+          <label>Voornaam<input type="text" id="e-p3-fn"></label>
+          <label>Achternaam<input type="text" id="e-p3-ln"></label>
+        </div>
+        <div class="edit-form-row">
+          <label>Geboortedatum<input type="date" id="e-p3-bd"></label>
+        </div>
+      </fieldset>
+
+      <div id="edit-reg-error" class="error-msg hidden"></div>
+      <div class="form-actions">
+        <button class="btn-secondary" onclick="closeEditRegModal()">Annuleren</button>
+        <button class="btn-primary" id="edit-reg-save" onclick="saveEditReg()">Opslaan</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/admin/admin.js"></script>
+</body>
+</html>
