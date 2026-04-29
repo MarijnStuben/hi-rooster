@@ -58,9 +58,10 @@ function initDb() {
   // Migration: allow_public_signup column
   try {
     db.exec("ALTER TABLE clinics ADD COLUMN allow_public_signup INTEGER DEFAULT 1");
-    db.prepare("UPDATE clinics SET allow_public_signup = 0 WHERE name LIKE '%Youzz%'").run();
     console.log('Migratie: allow_public_signup kolom toegevoegd');
   } catch (_) { /* kolom bestaat al */ }
+  // Altijd Youzz op 0 zetten (ook bij verse installatie)
+  db.prepare("UPDATE clinics SET allow_public_signup = 0 WHERE name LIKE '%Youzz%'").run();
 
   const adminExists = db.prepare('SELECT id FROM users WHERE username = ?').get('admin');
   if (!adminExists) {
