@@ -42,7 +42,6 @@ function renderClinics(clinics) {
     if (clinic.frequency) metaParts.push(`<span>📅 ${escHtml(clinic.frequency)}</span>`);
     if (clinic.time) metaParts.push(`<span>🕐 ${escHtml(clinic.time)}</span>`);
     if (clinic.address) metaParts.push(`<span>📍 ${escHtml(clinic.address)}</span>`);
-    if (clinic.contact_name) metaParts.push(`<span>👤 ${escHtml(clinic.contact_name)}</span>`);
 
     return `
       <div class="clinic-card">
@@ -54,7 +53,11 @@ function renderClinics(clinics) {
           <div class="dates-grid">${datesHtml}</div>
         </div>
       </div>`;
-  }).join('');
+  }).join('') + `
+    <div class="roster-footer-note">
+      Vragen, een fout in het rooster of een aanpassing nodig?
+      <a href="https://wa.me/31618904592" target="_blank" rel="noopener">WhatsApp Marijn via 06-18904592</a>
+    </div>`;
 }
 
 function renderDateCell(d, clinic) {

@@ -609,7 +609,7 @@ function buildMsg1(entry) {
   const kliniek = entry.clinic_name;
   const tijd = entry.time || '?';
   const adres = entry.address || '?';
-  return `Hoi ${naam}, kun jij nog op ${datum} naar ${kliniek} gaan? Het is om ${tijd} op ${adres}.`;
+  return `Hoi ${naam}, bedankt dat je een voorlichting wilt doen! Ik stuur je even een appje om te checken of je er nog steeds bij kunt zijn.\n\nDe datum is ${datum} om ${tijd} bij ${kliniek}, ${adres}.\n\nKun jij er nog bij zijn?`;
 }
 
 function buildMsg2(entry) {
@@ -620,8 +620,7 @@ function buildMsg2(entry) {
   const vrijwilligers = entry.persons.map(p => {
     const naam = `${p.first_name} ${p.last_name}`.trim();
     const gbd = p.birth_date ? fmtDate(p.birth_date) : '—';
-    const tel = p.phone || p.mobile || '';
-    return `${naam}, geb. ${gbd}${tel ? ', ' + tel : ''}`;
+    return `${naam}, geb. ${gbd}`;
   }).join('\n- ');
   return `Beste ${contact},\n\nWij willen ons aanmelden voor ${datum} om ${tijd} bij ${kliniek}.\n\nDe vrijwilligers zijn:\n- ${vrijwilligers}\n\nMet vriendelijke groet,\nH&I`;
 }
