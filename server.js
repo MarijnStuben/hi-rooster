@@ -2,7 +2,39 @@ const express = require('express');
 const session = require('express-session');
 const bcrypt = require('bcryptjs');
 const path = require('path');
+const fs = require('fs');
+const { execFileSync } = require('child_process');
 const { initDb, queries } = require('./db');
+
+const BACKUP_DIR = path.join(__dirname, 'backups');
+const DB_PATH = path.join(__dirname, 'data', 'hi-rooster.db');
+const MAX_BACKUPS = 14;
+
+function ensureBackupDir() {
+  if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
+}
+
+function createBackup() {
+  ensureBackupDir();
+  const now = new Date();
+  const stamp = now.toISOString().replace('T', '_').slice(0, 16).replace(':', '-');
+  const filename = `backup-${stamp}.sql`;
+  const filepath = path.join(BACKUP_DIR, filename);
+  const fd = fs.openSync(filepath, 'w');
+  try {
+    execFileSync('sqlite3', [DB_PATH, '.dump'], { stdio: ['pipe', fd, 'pipe'] });
+  } finally {
+    fs.closeSync(fd);
+  }
+  const files = fs.readdirSync(BACKUP_DIR)
+    .filter(f => f.startsWith('backup-') && f.endsWith('.sql'))
+    .sort();
+  if (files.length > MAX_BACKUPS) {
+    files.slice(0, files.length - MAX_BACKUPS)
+      .forEach(f => fs.unlinkSync(path.join(BACKUP_DIR, f)));
+  }
+  return filename;
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -199,6 +231,45 @@ app.get('/api/admin/week', requireAuth, (req, res) => {
   const toISO = d => d.toISOString().slice(0, 10);
   const dates = queries.getWeekDates(toISO(startDate), toISO(endDate));
   res.json({ start: toISO(startDate), end: toISO(endDate), dates });
+});
+
+// ─── Backups ───────────────────────────────────────────────────────────────
+
+app.get('/api/admin/backups', requireAuth, (req, res) => {
+  ensureBackupDir();
+  try {
+    const files = fs.readdirSync(BACKUP_DIR)
+      .filter(f => f.startsWith('backup-') && f.endsWith('.sql'))
+      .sort().reverse()
+      .map(f => {
+        const stat = fs.statSync(path.join(BACKUP_DIR, f));
+        return { filename: f, size: stat.size, created: stat.mtime };
+      });
+    res.json(files);
+  } catch (err) {
+    res.status(500).json({ error: 'Fout bij ophalen backups.' });
+  }
+});
+
+app.post('/api/admin/backups', requireAuth, (req, res) => {
+  try {
+    const filename = createBackup();
+    const stat = fs.statSync(path.join(BACKUP_DIR, filename));
+    res.json({ ok: true, filename, size: stat.size, created: stat.mtime });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Backup aanmaken mislukt.' });
+  }
+});
+
+app.get('/api/admin/backups/:filename', requireAuth, (req, res) => {
+  const { filename } = req.params;
+  if (!/^backup-[\d_-]+\.sql$/.test(filename)) {
+    return res.status(400).json({ error: 'Ongeldig bestandsnaam.' });
+  }
+  const filepath = path.join(BACKUP_DIR, filename);
+  if (!fs.existsSync(filepath)) return res.status(404).json({ error: 'Niet gevonden.' });
+  res.download(filepath, filename);
 });
 
 // ─── SPA fallbacks ─────────────────────────────────────────────────────────

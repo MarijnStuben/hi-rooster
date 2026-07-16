@@ -82,6 +82,7 @@ function switchView(view) {
   if (view === 'queue') loadQueue();
   else if (view === 'clinics') loadClinics();
   else if (view === 'week') loadWeek(currentWeekStart);
+  else if (view === 'backups') loadBackups();
 }
 
 // ─── Queue ───────────────────────────────────────────────────────────────────
@@ -654,6 +655,73 @@ function copyContactInfo(el) {
     el.textContent = '✓ Gekopieerd!';
     setTimeout(() => { el.textContent = orig; }, 2000);
   });
+}
+
+// ─── Backups ─────────────────────────────────────────────────────────────────
+async function loadBackups() {
+  const el = document.getElementById('backups-content');
+  el.innerHTML = '<div style="color:var(--grey);padding:20px">Laden…</div>';
+  try {
+    const res = await fetch('/api/admin/backups');
+    const backups = await res.json();
+    renderBackups(backups);
+  } catch {
+    el.innerHTML = '<div style="color:var(--red)">Fout bij laden van backups.</div>';
+  }
+}
+
+function renderBackups(backups) {
+  const el = document.getElementById('backups-content');
+  if (!backups.length) {
+    el.innerHTML = '<div class="empty-state">Nog geen backups. Maak er een aan via de knop hierboven.</div>';
+    return;
+  }
+  el.innerHTML = `
+    <table class="backup-table">
+      <thead>
+        <tr>
+          <th>Datum &amp; tijd</th>
+          <th>Bestandsnaam</th>
+          <th>Grootte</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        ${backups.map(b => `
+          <tr>
+            <td>${fmtDateTime(b.created)}</td>
+            <td style="font-family:monospace;font-size:.8rem;color:var(--grey)">${esc(b.filename)}</td>
+            <td style="color:var(--grey)">${fmtSize(b.size)}</td>
+            <td><a class="btn-secondary" style="font-size:.8rem;padding:5px 12px;text-decoration:none" href="/api/admin/backups/${esc(b.filename)}" download>Download</a></td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+    <p style="margin-top:12px;font-size:.8rem;color:var(--grey)">De laatste ${backups.length} backup${backups.length !== 1 ? 's' : ''} worden bewaard (max. 14).</p>
+  `;
+}
+
+async function triggerBackup() {
+  const btn = document.querySelector('#view-backups .btn-primary');
+  btn.disabled = true; btn.textContent = 'Bezig…';
+  try {
+    const res = await fetch('/api/admin/backups', { method: 'POST' });
+    if (res.ok) loadBackups();
+    else {
+      const d = await res.json();
+      alert(d.error || 'Backup mislukt.');
+    }
+  } catch {
+    alert('Verbindingsfout.');
+  } finally {
+    btn.disabled = false; btn.textContent = '+ Nu backup maken';
+  }
+}
+
+function fmtSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

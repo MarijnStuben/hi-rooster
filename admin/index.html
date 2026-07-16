@@ -32,6 +32,7 @@
         </button>
         <button class="nav-btn" data-view="clinics">Klinieken</button>
         <button class="nav-btn" data-view="week">Weekoverzicht</button>
+        <button class="nav-btn" data-view="backups">Backups</button>
       </div>
       <div class="nav-user">
         <span id="nav-username"></span>
@@ -69,6 +70,15 @@
       </div>
       <div id="week-content"></div>
     </div>
+    <!-- Backups view -->
+    <div id="view-backups" class="view hidden">
+      <div class="view-header">
+        <h2>Backups</h2>
+        <button class="btn-primary" onclick="triggerBackup()">+ Nu backup maken</button>
+      </div>
+      <div id="backups-content"></div>
+    </div>
+
   </div>
 
   <!-- Kliniek modal -->
