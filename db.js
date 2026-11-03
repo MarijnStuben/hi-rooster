@@ -321,6 +321,10 @@ const queries = {
     db.prepare('DELETE FROM dates WHERE id = ?').run(date_id);
   },
 
+  countPastDates(today) {
+    return db.prepare('SELECT COUNT(*) AS n FROM dates WHERE date < ?').get(today).n;
+  },
+
   deletePastDates(today) {
     return db.prepare('DELETE FROM dates WHERE date < ?').run(today).changes;
   },

@@ -339,8 +339,23 @@ app.get('/admin/', (req, res) => {
 
 // ─── Start ─────────────────────────────────────────────────────────────────
 
+function cleanupPastDates() {
+  const today = toLocalISO(new Date());
+  if (!queries.countPastDates(today)) return;
+  try {
+    const backup = createBackup();
+    const deleted = queries.deletePastDates(today);
+    console.log(`Wekelijkse opschoning: ${deleted} gepasseerde datums verwijderd (backup: ${backup}).`);
+  } catch (err) {
+    console.error('Wekelijkse opschoning mislukt, er is niets verwijderd:', err);
+  }
+}
+
 initDb();
 app.listen(PORT, () => {
   console.log(`H&I Rooster draait op http://localhost:${PORT}`);
   console.log(`Adminpanel: http://localhost:${PORT}/admin`);
 });
+setInterval(() => {
+  if (new Date().getDay() === 1) cleanupPastDates();
+}, 60 * 60 * 1000);
