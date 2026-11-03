@@ -339,18 +339,10 @@ async function deletePastDates() {
 }
 
 // Generate dates modal
-async function openGenModal(clinicId, clinicName) {
-  const res = await fetch('/api/admin/clinics');
-  const clinic = (await res.json()).find(c => c.id === clinicId);
-  const ds = clinic ? clinic.dates.map(d => d.date) : [];
-  let interval = 42;
-  if (ds.length >= 2) {
-    interval = Math.round((new Date(ds[ds.length - 1]) - new Date(ds[ds.length - 2])) / 86400000);
-  }
-
+function openGenModal(clinicId, clinicName) {
   document.getElementById('gen-clinic-id').value = clinicId;
   document.getElementById('gen-modal-clinic').textContent = clinicName;
-  document.getElementById('gen-interval').value = interval;
+  document.getElementById('gen-interval').value = '';
   document.getElementById('gen-until').value = '';
   document.getElementById('gen-preview').innerHTML = '';
   document.getElementById('gen-error').classList.add('hidden');
@@ -363,7 +355,8 @@ function closeGenModal() {
 
 async function submitGenerate(dryRun) {
   const clinicId = document.getElementById('gen-clinic-id').value;
-  const interval_days = Number(document.getElementById('gen-interval').value);
+  const intervalRaw = document.getElementById('gen-interval').value;
+  const interval_days = intervalRaw ? Number(intervalRaw) : null;
   const until = document.getElementById('gen-until').value;
   const errEl = document.getElementById('gen-error');
   const preview = document.getElementById('gen-preview');
@@ -381,9 +374,11 @@ async function submitGenerate(dryRun) {
     return;
   }
   if (dryRun) {
-    preview.innerHTML = result.dates.length
+    const warnings = result.warnings.map(w => `<div style="color:var(--orange);margin-top:6px">⚠ ${esc(w)}</div>`).join('');
+    const list = result.dates.length
       ? `<strong>${result.dates.length} nieuwe datums:</strong><br>${result.dates.map(fmtDateFull).join('<br>')}`
       : 'Geen nieuwe datums binnen deze periode.';
+    preview.innerHTML = `<div>Patroon: <strong>${esc(result.rule)}</strong> <span style="color:var(--grey)">(${esc(result.source)})</span></div>${warnings}<div style="margin-top:10px">${list}</div>`;
     return;
   }
   closeGenModal();

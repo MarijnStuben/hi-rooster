@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const { execFileSync } = require('child_process');
 const { initDb, queries } = require('./db');
+const { toLocalISO, resolveSchedule, generateDates, describe } = require('./schedule');
 
 const BACKUP_DIR = path.join(__dirname, 'backups');
 const DB_PATH = path.join(process.env.DATA_DIR || path.join(__dirname, 'data'), 'hi-rooster.db');
@@ -34,22 +35,6 @@ function createBackup() {
       .forEach(f => fs.unlinkSync(path.join(BACKUP_DIR, f)));
   }
   return filename;
-}
-
-function toLocalISO(d) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-function nextDates(lastISO, intervalDays, untilISO) {
-  const out = [];
-  const d = new Date(lastISO + 'T00:00:00');
-  for (;;) {
-    d.setDate(d.getDate() + intervalDays);
-    const iso = toLocalISO(d);
-    if (iso > untilISO) break;
-    out.push(iso);
-  }
-  return out;
 }
 
 const app = express();
@@ -222,22 +207,46 @@ app.patch('/api/admin/dates/:id/clear', requireAuth, (req, res) => {
 
 app.post('/api/admin/clinics/:id/generate-dates', requireAuth, (req, res) => {
   const clinicId = Number(req.params.id);
-  const intervalDays = Number(req.body.interval_days);
+  const clinic = queries.getClinicById(clinicId);
+  if (!clinic) return res.status(404).json({ error: 'Kliniek niet gevonden.' });
+
+  const today = new Date();
+  const todayISO = toLocalISO(today);
+  const maxISO = toLocalISO(new Date(today.getFullYear() + 3, today.getMonth(), today.getDate()));
   const until = req.body.until;
-  if (!Number.isInteger(intervalDays) || intervalDays < 1 || intervalDays > 365) {
-    return res.status(400).json({ error: 'Interval moet tussen 1 en 365 dagen zijn.' });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(until || '') || until < todayISO || until > maxISO) {
+    return res.status(400).json({ error: 'Vul een einddatum in de komende 3 jaar in.' });
   }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(until || '')) {
-    return res.status(400).json({ error: 'Vul een geldige einddatum in.' });
-  }
-  const last = queries.getLastDateForClinic(clinicId);
-  if (!last) {
+
+  const dates = queries.getDateStringsForClinic(clinicId);
+  if (!dates.length) {
     return res.status(400).json({ error: 'Deze kliniek heeft nog geen datums om vanaf te plannen.' });
   }
-  const today = toLocalISO(new Date());
-  const candidates = nextDates(last, intervalDays, until).filter(d => d >= today);
-  if (req.body.dry_run) return res.json({ dates: candidates });
-  res.json({ ok: true, added: queries.generateDates(clinicId, candidates) });
+
+  let rule;
+  let warnings = [];
+  if (req.body.interval_days) {
+    const days = Number(req.body.interval_days);
+    if (!Number.isInteger(days) || days < 1 || days > 365) {
+      return res.status(400).json({ error: 'Interval moet tussen 1 en 365 dagen zijn.' });
+    }
+    rule = { kind: 'interval', days, weekday: null, source: 'handmatig' };
+  } else {
+    const resolved = resolveSchedule(clinic.frequency, dates);
+    if (!resolved) {
+      return res.status(400).json({ error: 'Geen patroon gevonden in de omschrijving of in de historie. Vul een interval in.' });
+    }
+    rule = resolved.rule;
+    warnings = resolved.warnings;
+  }
+
+  const existing = new Set(dates);
+  const candidates = generateDates(rule, dates, until)
+    .filter(d => d >= todayISO && !existing.has(d));
+  const info = { rule: describe(rule), source: rule.source, warnings };
+
+  if (req.body.dry_run) return res.json({ ...info, dates: candidates });
+  res.json({ ok: true, ...info, added: queries.generateDates(clinicId, candidates) });
 });
 
 app.delete('/api/admin/dates/past', requireAuth, (req, res) => {

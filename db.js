@@ -325,8 +325,8 @@ const queries = {
     return db.prepare('DELETE FROM dates WHERE date < ?').run(today).changes;
   },
 
-  getLastDateForClinic(clinic_id) {
-    return db.prepare('SELECT MAX(date) AS date FROM dates WHERE clinic_id = ?').get(clinic_id).date;
+  getDateStringsForClinic(clinic_id) {
+    return db.prepare('SELECT date FROM dates WHERE clinic_id = ? ORDER BY date ASC').all(clinic_id).map(r => r.date);
   },
 
   generateDates(clinic_id, dates) {

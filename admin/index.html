@@ -138,10 +138,10 @@
       <p id="gen-modal-clinic" style="color:var(--grey);margin-bottom:16px;font-size:.9rem"></p>
       <input type="hidden" id="gen-clinic-id">
       <div class="form-grid">
-        <label>Interval (dagen)<input type="number" id="gen-interval" min="1" max="365"></label>
         <label>T/m datum<input type="date" id="gen-until"></label>
+        <label>Interval in dagen (optioneel)<input type="number" id="gen-interval" min="1" max="365" placeholder="leeg = patroon herkennen"></label>
       </div>
-      <p style="font-size:.8rem;color:var(--grey);margin-top:8px">Start na de laatste bestaande datum van deze kliniek. 21 dagen = elke 3 weken, 28 = elke 4 weken, 42 = elke 6 weken. Bestaande datums blijven staan.</p>
+      <p style="font-size:.8rem;color:var(--grey);margin-top:8px">Het patroon komt uit de omschrijving van de kliniek en wordt gecontroleerd tegen de historie. Bestaande datums blijven staan.</p>
       <div id="gen-preview" style="margin-top:12px;font-size:.9rem;max-height:220px;overflow-y:auto"></div>
       <div id="gen-error" class="error-msg hidden" style="margin-top:10px"></div>
       <div class="form-actions" style="margin-top:16px">
