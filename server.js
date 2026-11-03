@@ -7,7 +7,7 @@ const { execFileSync } = require('child_process');
 const { initDb, queries } = require('./db');
 
 const BACKUP_DIR = path.join(__dirname, 'backups');
-const DB_PATH = path.join(__dirname, 'data', 'hi-rooster.db');
+const DB_PATH = path.join(process.env.DATA_DIR || path.join(__dirname, 'data'), 'hi-rooster.db');
 const MAX_BACKUPS = 14;
 
 function ensureBackupDir() {
@@ -34,6 +34,22 @@ function createBackup() {
       .forEach(f => fs.unlinkSync(path.join(BACKUP_DIR, f)));
   }
   return filename;
+}
+
+function toLocalISO(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function nextDates(lastISO, intervalDays, untilISO) {
+  const out = [];
+  const d = new Date(lastISO + 'T00:00:00');
+  for (;;) {
+    d.setDate(d.getDate() + intervalDays);
+    const iso = toLocalISO(d);
+    if (iso > untilISO) break;
+    out.push(iso);
+  }
+  return out;
 }
 
 const app = express();
@@ -202,6 +218,37 @@ app.post('/api/admin/dates', requireAuth, (req, res) => {
 app.patch('/api/admin/dates/:id/clear', requireAuth, (req, res) => {
   queries.clearDate(Number(req.params.id));
   res.json({ ok: true });
+});
+
+app.post('/api/admin/clinics/:id/generate-dates', requireAuth, (req, res) => {
+  const clinicId = Number(req.params.id);
+  const intervalDays = Number(req.body.interval_days);
+  const until = req.body.until;
+  if (!Number.isInteger(intervalDays) || intervalDays < 1 || intervalDays > 365) {
+    return res.status(400).json({ error: 'Interval moet tussen 1 en 365 dagen zijn.' });
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(until || '')) {
+    return res.status(400).json({ error: 'Vul een geldige einddatum in.' });
+  }
+  const last = queries.getLastDateForClinic(clinicId);
+  if (!last) {
+    return res.status(400).json({ error: 'Deze kliniek heeft nog geen datums om vanaf te plannen.' });
+  }
+  const today = toLocalISO(new Date());
+  const candidates = nextDates(last, intervalDays, until).filter(d => d >= today);
+  if (req.body.dry_run) return res.json({ dates: candidates });
+  res.json({ ok: true, added: queries.generateDates(clinicId, candidates) });
+});
+
+app.delete('/api/admin/dates/past', requireAuth, (req, res) => {
+  try {
+    const backup = createBackup();
+    const deleted = queries.deletePastDates(toLocalISO(new Date()));
+    res.json({ ok: true, deleted, backup });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Backup mislukt, er is niets verwijderd.' });
+  }
 });
 
 app.delete('/api/admin/dates/:id', requireAuth, (req, res) => {

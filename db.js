@@ -321,6 +321,24 @@ const queries = {
     db.prepare('DELETE FROM dates WHERE id = ?').run(date_id);
   },
 
+  deletePastDates(today) {
+    return db.prepare('DELETE FROM dates WHERE date < ?').run(today).changes;
+  },
+
+  getLastDateForClinic(clinic_id) {
+    return db.prepare('SELECT MAX(date) AS date FROM dates WHERE clinic_id = ?').get(clinic_id).date;
+  },
+
+  generateDates(clinic_id, dates) {
+    return db.transaction(() => {
+      const added = [];
+      dates.forEach(date => {
+        if (queries.addDate(clinic_id, date)) added.push(date);
+      });
+      return added;
+    })();
+  },
+
   // Admin – Week overview
   setClinicNotified(dateId, value) {
     db.prepare('UPDATE dates SET clinic_notified = ? WHERE id = ?').run(value ? 1 : 0, dateId);

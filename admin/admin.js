@@ -216,7 +216,10 @@ function renderClinics(clinics) {
         <div class="dates-admin-grid">
           ${c.dates.map(d => renderDateAdminCell(d)).join('') || '<span style="color:var(--grey);font-size:.875rem">Geen datums.</span>'}
         </div>
-        <button class="btn-secondary" style="font-size:.8rem;padding:6px 12px" onclick="openDateModal(${c.id}, '${esc(c.name).replace(/'/g,"\\'")}')">+ Datum toevoegen</button>
+        <div style="display:flex;gap:8px">
+          <button class="btn-secondary" style="font-size:.8rem;padding:6px 12px" onclick="openDateModal(${c.id}, '${esc(c.name).replace(/'/g,"\\'")}')">+ Datum toevoegen</button>
+          <button class="btn-secondary" style="font-size:.8rem;padding:6px 12px" onclick="openGenModal(${c.id}, '${esc(c.name).replace(/'/g,"\\'")}')">Automatisch aanvullen</button>
+        </div>
       </div>
     </div>
   `).join('');
@@ -325,6 +328,68 @@ document.getElementById('clinic-form').addEventListener('submit', async e => {
   closeClinicModal();
   loadClinics();
 });
+
+async function deletePastDates() {
+  if (!confirm('Alle datums vóór vandaag verwijderen, inclusief de aanmeldingen daarop? Eerst wordt automatisch een backup gemaakt.')) return;
+  const res = await fetch('/api/admin/dates/past', { method: 'DELETE' });
+  const result = await res.json();
+  if (!res.ok) return alert(result.error || 'Verwijderen mislukt.');
+  alert(`${result.deleted} datums verwijderd.\nBackup: ${result.backup}`);
+  loadClinics();
+}
+
+// Generate dates modal
+async function openGenModal(clinicId, clinicName) {
+  const res = await fetch('/api/admin/clinics');
+  const clinic = (await res.json()).find(c => c.id === clinicId);
+  const ds = clinic ? clinic.dates.map(d => d.date) : [];
+  let interval = 42;
+  if (ds.length >= 2) {
+    interval = Math.round((new Date(ds[ds.length - 1]) - new Date(ds[ds.length - 2])) / 86400000);
+  }
+
+  document.getElementById('gen-clinic-id').value = clinicId;
+  document.getElementById('gen-modal-clinic').textContent = clinicName;
+  document.getElementById('gen-interval').value = interval;
+  document.getElementById('gen-until').value = '';
+  document.getElementById('gen-preview').innerHTML = '';
+  document.getElementById('gen-error').classList.add('hidden');
+  document.getElementById('gen-modal-overlay').classList.remove('hidden');
+}
+
+function closeGenModal() {
+  document.getElementById('gen-modal-overlay').classList.add('hidden');
+}
+
+async function submitGenerate(dryRun) {
+  const clinicId = document.getElementById('gen-clinic-id').value;
+  const interval_days = Number(document.getElementById('gen-interval').value);
+  const until = document.getElementById('gen-until').value;
+  const errEl = document.getElementById('gen-error');
+  const preview = document.getElementById('gen-preview');
+  errEl.classList.add('hidden');
+
+  const res = await fetch(`/api/admin/clinics/${clinicId}/generate-dates`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ interval_days, until, dry_run: dryRun }),
+  });
+  const result = await res.json();
+  if (!res.ok) {
+    errEl.textContent = result.error;
+    errEl.classList.remove('hidden');
+    return;
+  }
+  if (dryRun) {
+    preview.innerHTML = result.dates.length
+      ? `<strong>${result.dates.length} nieuwe datums:</strong><br>${result.dates.map(fmtDateFull).join('<br>')}`
+      : 'Geen nieuwe datums binnen deze periode.';
+    return;
+  }
+  closeGenModal();
+  alert(`${result.added.length} datums toegevoegd.`);
+  loadClinics();
+}
 
 // Date modal
 function openDateModal(clinicId, clinicName) {
