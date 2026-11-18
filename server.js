@@ -40,6 +40,7 @@ function createBackup() {
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+app.set('trust proxy', 1);
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -73,12 +74,8 @@ const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_MAX_FAILS = 10;
 const loginFails = new Map();
 
-function clientIp(req) {
-  return (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress;
-}
-
 app.post('/api/admin/login', (req, res) => {
-  const ip = clientIp(req);
+  const ip = req.ip;
   const now = Date.now();
   const entry = loginFails.get(ip);
   if (entry && now - entry.first > LOGIN_WINDOW_MS) loginFails.delete(ip);
