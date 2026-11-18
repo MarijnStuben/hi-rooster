@@ -69,11 +69,19 @@ function initDb() {
     console.log('Migratie: clinic_notified kolom toegevoegd');
   } catch (_) { /* kolom bestaat al */ }
 
-  const adminExists = db.prepare('SELECT id FROM users WHERE username = ?').get('admin');
-  if (!adminExists) {
-    db.prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)')
-      .run('admin', bcrypt.hashSync('admin123', 10));
-    console.log('Standaard admin aangemaakt: gebruikersnaam=admin wachtwoord=admin123');
+  // Alleen bij een lege gebruikerstabel een eerste beheerder aanmaken, en
+  // alleen met een wachtwoord uit ADMIN_PASSWORD. Er is geen standaardwachtwoord.
+  const userCount = db.prepare('SELECT COUNT(*) as n FROM users').get().n;
+  if (userCount === 0) {
+    const username = process.env.ADMIN_USERNAME || 'admin';
+    const password = process.env.ADMIN_PASSWORD;
+    if (password) {
+      db.prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)')
+        .run(username, bcrypt.hashSync(password, 10));
+      console.log(`Eerste beheerder aangemaakt: ${username}`);
+    } else {
+      console.warn('Er is nog geen beheerder. Start de app eenmalig met ADMIN_PASSWORD (en eventueel ADMIN_USERNAME) om er een aan te maken.');
+    }
   }
 
   const count = db.prepare('SELECT COUNT(*) as n FROM clinics').get();

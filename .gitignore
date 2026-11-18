@@ -3,3 +3,5 @@ data/
 *.db
 .env
 backups/
+.DS_Store
+.claude/settings.local.json

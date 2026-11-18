@@ -4,6 +4,7 @@ const bcrypt = require('bcryptjs');
 const path = require('path');
 const fs = require('fs');
 const { execFileSync } = require('child_process');
+const crypto = require('crypto');
 const { initDb, queries } = require('./db');
 const { toLocalISO, resolveSchedule, generateDates, describe } = require('./schedule');
 
@@ -44,8 +45,16 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/admin', express.static(path.join(__dirname, 'admin')));
 
+// Zonder SESSION_SECRET kiest de app bij elke start een willekeurige sleutel.
+// Dat is veilig, maar beheerders worden dan bij elke herstart uitgelogd.
+let sessionSecret = process.env.SESSION_SECRET;
+if (!sessionSecret) {
+  sessionSecret = crypto.randomBytes(32).toString('hex');
+  console.warn('Let op: SESSION_SECRET is niet gezet. Er wordt een tijdelijke sleutel gebruikt; na een herstart moet je opnieuw inloggen.');
+}
+
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'hi-rooster-geheim-2026',
+  secret: sessionSecret,
   resave: false,
   saveUninitialized: false,
   cookie: { maxAge: 8 * 60 * 60 * 1000 }, // 8 uur
@@ -58,13 +67,34 @@ function requireAuth(req, res, next) {
 
 // ─── Auth ──────────────────────────────────────────────────────────────────
 
+// Eenvoudige rem op wachtwoorden raden: na 10 mislukte pogingen binnen
+// 15 minuten wordt een IP-adres tijdelijk geblokkeerd.
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_MAX_FAILS = 10;
+const loginFails = new Map();
+
+function clientIp(req) {
+  return (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress;
+}
+
 app.post('/api/admin/login', (req, res) => {
+  const ip = clientIp(req);
+  const now = Date.now();
+  const entry = loginFails.get(ip);
+  if (entry && now - entry.first > LOGIN_WINDOW_MS) loginFails.delete(ip);
+  const fails = loginFails.get(ip);
+  if (fails && fails.count >= LOGIN_MAX_FAILS) {
+    return res.status(429).json({ error: 'Te veel mislukte pogingen. Probeer het over 15 minuten opnieuw.' });
+  }
+
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Vul gebruikersnaam en wachtwoord in.' });
   const user = queries.getUserByUsername(username);
   if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+    if (fails) fails.count++; else loginFails.set(ip, { count: 1, first: now });
     return res.status(401).json({ error: 'Onjuiste gebruikersnaam of wachtwoord.' });
   }
+  loginFails.delete(ip);
   req.session.userId = user.id;
   req.session.username = user.username;
   res.json({ ok: true, username: user.username });
