@@ -82,6 +82,7 @@ function switchView(view) {
   if (view === 'queue') loadQueue();
   else if (view === 'clinics') loadClinics();
   else if (view === 'week') loadWeek(currentWeekStart);
+  else if (view === 'backups') loadBackups();
 }
 
 // ─── Queue ───────────────────────────────────────────────────────────────────
@@ -215,7 +216,10 @@ function renderClinics(clinics) {
         <div class="dates-admin-grid">
           ${c.dates.map(d => renderDateAdminCell(d)).join('') || '<span style="color:var(--grey);font-size:.875rem">Geen datums.</span>'}
         </div>
-        <button class="btn-secondary" style="font-size:.8rem;padding:6px 12px" onclick="openDateModal(${c.id}, '${esc(c.name).replace(/'/g,"\\'")}')">+ Datum toevoegen</button>
+        <div style="display:flex;gap:8px">
+          <button class="btn-secondary" style="font-size:.8rem;padding:6px 12px" onclick="openDateModal(${c.id}, '${esc(c.name).replace(/'/g,"\\'")}')">+ Datum toevoegen</button>
+          <button class="btn-secondary" style="font-size:.8rem;padding:6px 12px" onclick="openGenModal(${c.id}, '${esc(c.name).replace(/'/g,"\\'")}')">Automatisch aanvullen</button>
+        </div>
       </div>
     </div>
   `).join('');
@@ -324,6 +328,63 @@ document.getElementById('clinic-form').addEventListener('submit', async e => {
   closeClinicModal();
   loadClinics();
 });
+
+async function deletePastDates() {
+  if (!confirm('Alle datums vóór vandaag verwijderen, inclusief de aanmeldingen daarop? Eerst wordt automatisch een backup gemaakt.')) return;
+  const res = await fetch('/api/admin/dates/past', { method: 'DELETE' });
+  const result = await res.json();
+  if (!res.ok) return alert(result.error || 'Verwijderen mislukt.');
+  alert(`${result.deleted} datums verwijderd.\nBackup: ${result.backup}`);
+  loadClinics();
+}
+
+// Generate dates modal
+function openGenModal(clinicId, clinicName) {
+  document.getElementById('gen-clinic-id').value = clinicId;
+  document.getElementById('gen-modal-clinic').textContent = clinicName;
+  document.getElementById('gen-interval').value = '';
+  document.getElementById('gen-until').value = '';
+  document.getElementById('gen-preview').innerHTML = '';
+  document.getElementById('gen-error').classList.add('hidden');
+  document.getElementById('gen-modal-overlay').classList.remove('hidden');
+}
+
+function closeGenModal() {
+  document.getElementById('gen-modal-overlay').classList.add('hidden');
+}
+
+async function submitGenerate(dryRun) {
+  const clinicId = document.getElementById('gen-clinic-id').value;
+  const intervalRaw = document.getElementById('gen-interval').value;
+  const interval_days = intervalRaw ? Number(intervalRaw) : null;
+  const until = document.getElementById('gen-until').value;
+  const errEl = document.getElementById('gen-error');
+  const preview = document.getElementById('gen-preview');
+  errEl.classList.add('hidden');
+
+  const res = await fetch(`/api/admin/clinics/${clinicId}/generate-dates`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ interval_days, until, dry_run: dryRun }),
+  });
+  const result = await res.json();
+  if (!res.ok) {
+    errEl.textContent = result.error;
+    errEl.classList.remove('hidden');
+    return;
+  }
+  if (dryRun) {
+    const warnings = result.warnings.map(w => `<div style="color:var(--orange);margin-top:6px">⚠ ${esc(w)}</div>`).join('');
+    const list = result.dates.length
+      ? `<strong>${result.dates.length} nieuwe datums:</strong><br>${result.dates.map(fmtDateFull).join('<br>')}`
+      : 'Geen nieuwe datums binnen deze periode.';
+    preview.innerHTML = `<div>Patroon: <strong>${esc(result.rule)}</strong> <span style="color:var(--grey)">(${esc(result.source)})</span></div>${warnings}<div style="margin-top:10px">${list}</div>`;
+    return;
+  }
+  closeGenModal();
+  alert(`${result.added.length} datums toegevoegd.`);
+  loadClinics();
+}
 
 // Date modal
 function openDateModal(clinicId, clinicName) {
@@ -578,6 +639,17 @@ function renderWeekEntry(entry) {
             </div>
             <textarea class="msg-textarea" rows="3">${esc(msg1)}</textarea>
           </div>
+          ${entry.contact_info || entry.contact_name ? `
+          <div class="contact-info-block">
+            <span class="contact-info-label">📞 Contact kliniek</span>
+            ${entry.contact_name ? `<span class="contact-info-item"><strong>${esc(entry.contact_name)}</strong></span>` : ''}
+            ${entry.contact_info ? `<span class="contact-info-item contact-info-copyable" title="Klik om te kopiëren" onclick="copyContactInfo(this)">${esc(entry.contact_info)}</span>` : ''}
+          </div>` : ''}
+          <label class="notified-check ${entry.clinic_notified ? 'is-notified' : ''}" onclick="toggleNotified(this, ${entry.id})">
+            <input type="checkbox" ${entry.clinic_notified ? 'checked' : ''} style="display:none">
+            <span class="notified-box">${entry.clinic_notified ? '✓' : ''}</span>
+            <span class="notified-text">${entry.clinic_notified ? 'Aangemeld bij kliniek' : 'Nog niet aangemeld bij kliniek'}</span>
+          </label>
           <div class="msg-block">
             <div class="msg-label">
               Bericht 2 — Aanmelding bij kliniek
@@ -598,7 +670,7 @@ function buildMsg1(entry) {
   const kliniek = entry.clinic_name;
   const tijd = entry.time || '?';
   const adres = entry.address || '?';
-  return `Hoi ${naam}, kun jij nog op ${datum} naar ${kliniek} gaan? Het is om ${tijd} op ${adres}.`;
+  return `Hoi ${naam}, bedankt dat je een voorlichting wilt doen! Ik stuur je even een appje om te checken of je er nog steeds bij kunt zijn.\n\nDe datum is ${datum} om ${tijd} bij ${kliniek}, ${adres}.\n\nKun jij er nog bij zijn?`;
 }
 
 function buildMsg2(entry) {
@@ -609,8 +681,7 @@ function buildMsg2(entry) {
   const vrijwilligers = entry.persons.map(p => {
     const naam = `${p.first_name} ${p.last_name}`.trim();
     const gbd = p.birth_date ? fmtDate(p.birth_date) : '—';
-    const tel = p.phone || p.mobile || '';
-    return `${naam}, geb. ${gbd}${tel ? ', ' + tel : ''}`;
+    return `${naam}, geb. ${gbd}`;
   }).join('\n- ');
   return `Beste ${contact},\n\nWij willen ons aanmelden voor ${datum} om ${tijd} bij ${kliniek}.\n\nDe vrijwilligers zijn:\n- ${vrijwilligers}\n\nMet vriendelijke groet,\nH&I`;
 }
@@ -622,6 +693,95 @@ function copyMsg(btn) {
     btn.classList.add('copied');
     setTimeout(() => { btn.textContent = 'Kopiëren'; btn.classList.remove('copied'); }, 2000);
   });
+}
+
+async function toggleNotified(label, dateId) {
+  const checkbox = label.querySelector('input');
+  const newVal = !checkbox.checked;
+  checkbox.checked = newVal;
+  label.classList.toggle('is-notified', newVal);
+  label.querySelector('.notified-box').textContent = newVal ? '✓' : '';
+  label.querySelector('.notified-text').textContent = newVal ? 'Aangemeld bij kliniek' : 'Nog niet aangemeld bij kliniek';
+  await fetch(`/api/admin/dates/${dateId}/notified`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ value: newVal }),
+  });
+}
+
+function copyContactInfo(el) {
+  navigator.clipboard.writeText(el.textContent).then(() => {
+    const orig = el.textContent;
+    el.textContent = '✓ Gekopieerd!';
+    setTimeout(() => { el.textContent = orig; }, 2000);
+  });
+}
+
+// ─── Backups ─────────────────────────────────────────────────────────────────
+async function loadBackups() {
+  const el = document.getElementById('backups-content');
+  el.innerHTML = '<div style="color:var(--grey);padding:20px">Laden…</div>';
+  try {
+    const res = await fetch('/api/admin/backups');
+    const backups = await res.json();
+    renderBackups(backups);
+  } catch {
+    el.innerHTML = '<div style="color:var(--red)">Fout bij laden van backups.</div>';
+  }
+}
+
+function renderBackups(backups) {
+  const el = document.getElementById('backups-content');
+  if (!backups.length) {
+    el.innerHTML = '<div class="empty-state">Nog geen backups. Maak er een aan via de knop hierboven.</div>';
+    return;
+  }
+  el.innerHTML = `
+    <table class="backup-table">
+      <thead>
+        <tr>
+          <th>Datum &amp; tijd</th>
+          <th>Bestandsnaam</th>
+          <th>Grootte</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        ${backups.map(b => `
+          <tr>
+            <td>${fmtDateTime(b.created)}</td>
+            <td style="font-family:monospace;font-size:.8rem;color:var(--grey)">${esc(b.filename)}</td>
+            <td style="color:var(--grey)">${fmtSize(b.size)}</td>
+            <td><a class="btn-secondary" style="font-size:.8rem;padding:5px 12px;text-decoration:none" href="/api/admin/backups/${esc(b.filename)}" download>Download</a></td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+    <p style="margin-top:12px;font-size:.8rem;color:var(--grey)">De laatste ${backups.length} backup${backups.length !== 1 ? 's' : ''} worden bewaard (max. 14).</p>
+  `;
+}
+
+async function triggerBackup() {
+  const btn = document.querySelector('#view-backups .btn-primary');
+  btn.disabled = true; btn.textContent = 'Bezig…';
+  try {
+    const res = await fetch('/api/admin/backups', { method: 'POST' });
+    if (res.ok) loadBackups();
+    else {
+      const d = await res.json();
+      alert(d.error || 'Backup mislukt.');
+    }
+  } catch {
+    alert('Verbindingsfout.');
+  } finally {
+    btn.disabled = false; btn.textContent = '+ Nu backup maken';
+  }
+}
+
+function fmtSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
