@@ -3,17 +3,18 @@
 set -euo pipefail
 cd "$DEPLOY_PATH"
 
-# 1. Back-up van de database vóór elke deploy (laatste 20 bewaard).
+# 1. Back-up van de database vóór elke deploy (laatste 20 'pre-deploy'-back-ups bewaard;
+#    andere back-ups in backups/ worden nooit aangeraakt).
 if [ -f data/hi-rooster.db ]; then
   mkdir -p backups
   stamp=$(date +%Y%m%d-%H%M%S)
   if command -v sqlite3 >/dev/null; then
-    sqlite3 data/hi-rooster.db ".backup 'backups/hi-rooster-$stamp.db'"
+    sqlite3 data/hi-rooster.db ".backup 'backups/pre-deploy-$stamp.db'"
   else
-    cp data/hi-rooster.db "backups/hi-rooster-$stamp.db"
+    cp data/hi-rooster.db "backups/pre-deploy-$stamp.db"
   fi
-  ls -1t backups/hi-rooster-*.db | tail -n +21 | xargs -r rm --
-  echo "Back-up gemaakt: backups/hi-rooster-$stamp.db"
+  ls -1t backups/pre-deploy-*.db | tail -n +21 | xargs -r rm --
+  echo "Back-up gemaakt: backups/pre-deploy-$stamp.db"
 fi
 
 # 2. Pakketten installeren.

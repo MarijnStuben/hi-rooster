@@ -14,7 +14,7 @@ Wachtwoorden (beheerder `bob`, SSH, GitHub) staan in de wachtwoordmanager van Ma
 
 ## Repository
 
-- **GitHub:** `git@github.com:MarijnStuben/hi-rooster.git`, branch `main`
+- **GitHub:** `MarijnStuben/hi-rooster`, branch `master`
 
 ## Stack
 
@@ -34,14 +34,17 @@ Wachtwoorden (beheerder `bob`, SSH, GitHub) staan in de wachtwoordmanager van Ma
 
 ## Deployment
 
-```bash
-git add <bestanden>
-git commit -m "omschrijving"
-git push
-ssh root@209.38.99.165 "cd /var/www/hi-rooster && git pull && pm2 restart hi-rooster --update-env"
-```
+Automatisch via GitHub Actions (`.github/workflows/deploy.yml`): elke push naar `master` zet de code op de droplet.
 
-Commit alleen bestanden die je bewust wijzigt.
+1. Back-up van de database naar `backups/pre-deploy-<datum>.db`.
+2. Code kopiëren met rsync. `data/`, `backups/`, `node_modules/` en `.env` blijven onaangeraakt; er wordt niets verwijderd.
+3. `npm install --omit=dev` en `pm2 restart hi-rooster --update-env`.
+
+Benodigde repository secrets: `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_PATH`, `DEPLOY_SSH_KEY` (optioneel `DEPLOY_RESTART_CMD`).
+
+Live code terughalen naar GitHub (als er ooit direct op de server is gewerkt): push een commit op een `claude/`-branch met `[sync-droplet]` in het bericht (`.github/workflows/sync-from-droplet.yml`).
+
+**Beheer-API:** naast inloggen accepteren alle `/api/admin/*`-routes ook `Authorization: Bearer <ADMIN_API_TOKEN>`. Alleen actief als `ADMIN_API_TOKEN` (minimaal 32 tekens) in de pm2-omgeving staat.
 
 ## Automatische processen
 
