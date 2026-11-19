@@ -58,15 +58,30 @@ function initDb() {
   // Migration: allow_public_signup column
   try {
     db.exec("ALTER TABLE clinics ADD COLUMN allow_public_signup INTEGER DEFAULT 1");
-    db.prepare("UPDATE clinics SET allow_public_signup = 0 WHERE name LIKE '%Youzz%'").run();
     console.log('Migratie: allow_public_signup kolom toegevoegd');
   } catch (_) { /* kolom bestaat al */ }
+  // Altijd Youzz op 0 zetten (ook bij verse installatie)
+  db.prepare("UPDATE clinics SET allow_public_signup = 0 WHERE name LIKE '%Youzz%'").run();
 
-  const adminExists = db.prepare('SELECT id FROM users WHERE username = ?').get('admin');
-  if (!adminExists) {
-    db.prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)')
-      .run('admin', bcrypt.hashSync('admin123', 10));
-    console.log('Standaard admin aangemaakt: gebruikersnaam=admin wachtwoord=admin123');
+  // Migration: clinic_notified column
+  try {
+    db.exec("ALTER TABLE dates ADD COLUMN clinic_notified INTEGER DEFAULT 0");
+    console.log('Migratie: clinic_notified kolom toegevoegd');
+  } catch (_) { /* kolom bestaat al */ }
+
+  // Alleen bij een lege gebruikerstabel een eerste beheerder aanmaken, en
+  // alleen met een wachtwoord uit ADMIN_PASSWORD. Er is geen standaardwachtwoord.
+  const userCount = db.prepare('SELECT COUNT(*) as n FROM users').get().n;
+  if (userCount === 0) {
+    const username = process.env.ADMIN_USERNAME || 'admin';
+    const password = process.env.ADMIN_PASSWORD;
+    if (password) {
+      db.prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)')
+        .run(username, bcrypt.hashSync(password, 10));
+      console.log(`Eerste beheerder aangemaakt: ${username}`);
+    } else {
+      console.warn('Er is nog geen beheerder. Start de app eenmalig met ADMIN_PASSWORD (en eventueel ADMIN_USERNAME) om er een aan te maken.');
+    }
   }
 
   const count = db.prepare('SELECT COUNT(*) as n FROM clinics').get();
@@ -314,10 +329,36 @@ const queries = {
     db.prepare('DELETE FROM dates WHERE id = ?').run(date_id);
   },
 
+  countPastDates(today) {
+    return db.prepare('SELECT COUNT(*) AS n FROM dates WHERE date < ?').get(today).n;
+  },
+
+  deletePastDates(today) {
+    return db.prepare('DELETE FROM dates WHERE date < ?').run(today).changes;
+  },
+
+  getDateStringsForClinic(clinic_id) {
+    return db.prepare('SELECT date FROM dates WHERE clinic_id = ? ORDER BY date ASC').all(clinic_id).map(r => r.date);
+  },
+
+  generateDates(clinic_id, dates) {
+    return db.transaction(() => {
+      const added = [];
+      dates.forEach(date => {
+        if (queries.addDate(clinic_id, date)) added.push(date);
+      });
+      return added;
+    })();
+  },
+
   // Admin – Week overview
+  setClinicNotified(dateId, value) {
+    db.prepare('UPDATE dates SET clinic_notified = ? WHERE id = ?').run(value ? 1 : 0, dateId);
+  },
+
   getWeekDates(startISO, endISO) {
     const dates = db.prepare(`
-      SELECT d.id, d.date, d.status,
+      SELECT d.id, d.date, d.status, d.clinic_notified,
         c.id as clinic_id, c.name as clinic_name, c.address, c.time,
         c.contact_name, c.contact_info,
         r.id as reg_id

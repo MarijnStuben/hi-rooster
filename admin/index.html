@@ -32,6 +32,7 @@
         </button>
         <button class="nav-btn" data-view="clinics">Klinieken</button>
         <button class="nav-btn" data-view="week">Weekoverzicht</button>
+        <button class="nav-btn" data-view="backups">Backups</button>
       </div>
       <div class="nav-user">
         <span id="nav-username"></span>
@@ -52,7 +53,10 @@
     <div id="view-clinics" class="view hidden">
       <div class="view-header">
         <h2>Klinieken</h2>
-        <button class="btn-primary" onclick="openClinicModal()">+ Nieuwe kliniek</button>
+        <div style="display:flex;gap:8px">
+          <button class="btn-secondary" onclick="deletePastDates()">Gepasseerde datums verwijderen</button>
+          <button class="btn-primary" onclick="openClinicModal()">+ Nieuwe kliniek</button>
+        </div>
       </div>
       <div id="clinics-content"></div>
     </div>
@@ -69,6 +73,15 @@
       </div>
       <div id="week-content"></div>
     </div>
+    <!-- Backups view -->
+    <div id="view-backups" class="view hidden">
+      <div class="view-header">
+        <h2>Backups</h2>
+        <button class="btn-primary" onclick="triggerBackup()">+ Nu backup maken</button>
+      </div>
+      <div id="backups-content"></div>
+    </div>
+
   </div>
 
   <!-- Kliniek modal -->
@@ -113,6 +126,28 @@
       <div class="form-actions" style="margin-top:16px">
         <button class="btn-secondary" onclick="closeDateModal()">Annuleren</button>
         <button class="btn-primary" onclick="submitAddDate()">Toevoegen</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Datums automatisch aanvullen modal -->
+  <div id="gen-modal-overlay" class="modal-overlay hidden">
+    <div class="modal" style="max-width:460px">
+      <button class="modal-close" onclick="closeGenModal()">&times;</button>
+      <h2>Datums automatisch aanvullen</h2>
+      <p id="gen-modal-clinic" style="color:var(--grey);margin-bottom:16px;font-size:.9rem"></p>
+      <input type="hidden" id="gen-clinic-id">
+      <div class="form-grid">
+        <label>T/m datum<input type="date" id="gen-until"></label>
+        <label>Interval in dagen (optioneel)<input type="number" id="gen-interval" min="1" max="365" placeholder="leeg = patroon herkennen"></label>
+      </div>
+      <p style="font-size:.8rem;color:var(--grey);margin-top:8px">Het patroon komt uit de omschrijving van de kliniek en wordt gecontroleerd tegen de historie. Bestaande datums blijven staan.</p>
+      <div id="gen-preview" style="margin-top:12px;font-size:.9rem;max-height:220px;overflow-y:auto"></div>
+      <div id="gen-error" class="error-msg hidden" style="margin-top:10px"></div>
+      <div class="form-actions" style="margin-top:16px">
+        <button class="btn-secondary" onclick="closeGenModal()">Annuleren</button>
+        <button class="btn-secondary" onclick="submitGenerate(true)">Voorbeeld</button>
+        <button class="btn-primary" onclick="submitGenerate(false)">Toevoegen</button>
       </div>
     </div>
   </div>

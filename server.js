@@ -2,36 +2,114 @@ const express = require('express');
 const session = require('express-session');
 const bcrypt = require('bcryptjs');
 const path = require('path');
+const fs = require('fs');
+const { execFileSync } = require('child_process');
+const crypto = require('crypto');
 const { initDb, queries } = require('./db');
+const { toLocalISO, resolveSchedule, generateDates, describe } = require('./schedule');
+
+const BACKUP_DIR = path.join(__dirname, 'backups');
+const DB_PATH = path.join(process.env.DATA_DIR || path.join(__dirname, 'data'), 'hi-rooster.db');
+const MAX_BACKUPS = 14;
+
+function ensureBackupDir() {
+  if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
+}
+
+function createBackup() {
+  ensureBackupDir();
+  const now = new Date();
+  const stamp = now.toISOString().replace('T', '_').slice(0, 16).replace(':', '-');
+  const filename = `backup-${stamp}.sql`;
+  const filepath = path.join(BACKUP_DIR, filename);
+  const fd = fs.openSync(filepath, 'w');
+  try {
+    execFileSync('sqlite3', [DB_PATH, '.dump'], { stdio: ['pipe', fd, 'pipe'] });
+  } finally {
+    fs.closeSync(fd);
+  }
+  const files = fs.readdirSync(BACKUP_DIR)
+    .filter(f => f.startsWith('backup-') && f.endsWith('.sql'))
+    .sort();
+  if (files.length > MAX_BACKUPS) {
+    files.slice(0, files.length - MAX_BACKUPS)
+      .forEach(f => fs.unlinkSync(path.join(BACKUP_DIR, f)));
+  }
+  return filename;
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+app.set('trust proxy', 1);
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/admin', express.static(path.join(__dirname, 'admin')));
 
+// Zonder SESSION_SECRET kiest de app bij elke start een willekeurige sleutel.
+// Dat is veilig, maar beheerders worden dan bij elke herstart uitgelogd.
+let sessionSecret = process.env.SESSION_SECRET;
+if (!sessionSecret) {
+  sessionSecret = crypto.randomBytes(32).toString('hex');
+  console.warn('Let op: SESSION_SECRET is niet gezet. Er wordt een tijdelijke sleutel gebruikt; na een herstart moet je opnieuw inloggen.');
+}
+
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'hi-rooster-geheim-2026',
+  secret: sessionSecret,
   resave: false,
   saveUninitialized: false,
   cookie: { maxAge: 8 * 60 * 60 * 1000 }, // 8 uur
 }));
 
+// Optionele API-sleutel voor beheer zonder in te loggen (bijv. vanuit Claude).
+// Alleen actief als ADMIN_API_TOKEN is ingesteld (minimaal 32 tekens).
+const ADMIN_API_TOKEN = process.env.ADMIN_API_TOKEN || '';
+if (ADMIN_API_TOKEN && ADMIN_API_TOKEN.length < 32) {
+  console.warn('ADMIN_API_TOKEN is te kort (minimaal 32 tekens) en wordt genegeerd.');
+}
+
+function hasValidApiToken(req) {
+  if (ADMIN_API_TOKEN.length < 32) return false;
+  const header = req.get('authorization') || '';
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  if (!match) return false;
+  const a = crypto.createHash('sha256').update(match[1].trim()).digest();
+  const b = crypto.createHash('sha256').update(ADMIN_API_TOKEN).digest();
+  return crypto.timingSafeEqual(a, b);
+}
+
 function requireAuth(req, res, next) {
   if (req.session && req.session.userId) return next();
+  if (hasValidApiToken(req)) return next();
   res.status(401).json({ error: 'Niet ingelogd' });
 }
 
 // ─── Auth ──────────────────────────────────────────────────────────────────
 
+// Eenvoudige rem op wachtwoorden raden: na 10 mislukte pogingen binnen
+// 15 minuten wordt een IP-adres tijdelijk geblokkeerd.
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_MAX_FAILS = 10;
+const loginFails = new Map();
+
 app.post('/api/admin/login', (req, res) => {
+  const ip = req.ip;
+  const now = Date.now();
+  const entry = loginFails.get(ip);
+  if (entry && now - entry.first > LOGIN_WINDOW_MS) loginFails.delete(ip);
+  const fails = loginFails.get(ip);
+  if (fails && fails.count >= LOGIN_MAX_FAILS) {
+    return res.status(429).json({ error: 'Te veel mislukte pogingen. Probeer het over 15 minuten opnieuw.' });
+  }
+
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Vul gebruikersnaam en wachtwoord in.' });
   const user = queries.getUserByUsername(username);
   if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+    if (fails) fails.count++; else loginFails.set(ip, { count: 1, first: now });
     return res.status(401).json({ error: 'Onjuiste gebruikersnaam of wachtwoord.' });
   }
+  loginFails.delete(ip);
   req.session.userId = user.id;
   req.session.username = user.username;
   res.json({ ok: true, username: user.username });
@@ -172,8 +250,68 @@ app.patch('/api/admin/dates/:id/clear', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+app.post('/api/admin/clinics/:id/generate-dates', requireAuth, (req, res) => {
+  const clinicId = Number(req.params.id);
+  const clinic = queries.getClinicById(clinicId);
+  if (!clinic) return res.status(404).json({ error: 'Kliniek niet gevonden.' });
+
+  const today = new Date();
+  const todayISO = toLocalISO(today);
+  const maxISO = toLocalISO(new Date(today.getFullYear() + 3, today.getMonth(), today.getDate()));
+  const until = req.body.until;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(until || '') || until < todayISO || until > maxISO) {
+    return res.status(400).json({ error: 'Vul een einddatum in de komende 3 jaar in.' });
+  }
+
+  const dates = queries.getDateStringsForClinic(clinicId);
+  if (!dates.length) {
+    return res.status(400).json({ error: 'Deze kliniek heeft nog geen datums om vanaf te plannen.' });
+  }
+
+  let rule;
+  let warnings = [];
+  if (req.body.interval_days) {
+    const days = Number(req.body.interval_days);
+    if (!Number.isInteger(days) || days < 1 || days > 365) {
+      return res.status(400).json({ error: 'Interval moet tussen 1 en 365 dagen zijn.' });
+    }
+    rule = { kind: 'interval', days, weekday: null, source: 'handmatig' };
+  } else {
+    const resolved = resolveSchedule(clinic.frequency, dates);
+    if (!resolved) {
+      return res.status(400).json({ error: 'Geen patroon gevonden in de omschrijving of in de historie. Vul een interval in.' });
+    }
+    rule = resolved.rule;
+    warnings = resolved.warnings;
+  }
+
+  const existing = new Set(dates);
+  const candidates = generateDates(rule, dates, until)
+    .filter(d => d >= todayISO && !existing.has(d));
+  const info = { rule: describe(rule), source: rule.source, warnings };
+
+  if (req.body.dry_run) return res.json({ ...info, dates: candidates });
+  res.json({ ok: true, ...info, added: queries.generateDates(clinicId, candidates) });
+});
+
+app.delete('/api/admin/dates/past', requireAuth, (req, res) => {
+  try {
+    const backup = createBackup();
+    const deleted = queries.deletePastDates(toLocalISO(new Date()));
+    res.json({ ok: true, deleted, backup });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Backup mislukt, er is niets verwijderd.' });
+  }
+});
+
 app.delete('/api/admin/dates/:id', requireAuth, (req, res) => {
   queries.deleteDate(Number(req.params.id));
+  res.json({ ok: true });
+});
+
+app.patch('/api/admin/dates/:id/notified', requireAuth, (req, res) => {
+  queries.setClinicNotified(Number(req.params.id), req.body.value);
   res.json({ ok: true });
 });
 
@@ -196,6 +334,45 @@ app.get('/api/admin/week', requireAuth, (req, res) => {
   res.json({ start: toISO(startDate), end: toISO(endDate), dates });
 });
 
+// ─── Backups ───────────────────────────────────────────────────────────────
+
+app.get('/api/admin/backups', requireAuth, (req, res) => {
+  ensureBackupDir();
+  try {
+    const files = fs.readdirSync(BACKUP_DIR)
+      .filter(f => f.startsWith('backup-') && f.endsWith('.sql'))
+      .sort().reverse()
+      .map(f => {
+        const stat = fs.statSync(path.join(BACKUP_DIR, f));
+        return { filename: f, size: stat.size, created: stat.mtime };
+      });
+    res.json(files);
+  } catch (err) {
+    res.status(500).json({ error: 'Fout bij ophalen backups.' });
+  }
+});
+
+app.post('/api/admin/backups', requireAuth, (req, res) => {
+  try {
+    const filename = createBackup();
+    const stat = fs.statSync(path.join(BACKUP_DIR, filename));
+    res.json({ ok: true, filename, size: stat.size, created: stat.mtime });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Backup aanmaken mislukt.' });
+  }
+});
+
+app.get('/api/admin/backups/:filename', requireAuth, (req, res) => {
+  const { filename } = req.params;
+  if (!/^backup-[\d_-]+\.sql$/.test(filename)) {
+    return res.status(400).json({ error: 'Ongeldig bestandsnaam.' });
+  }
+  const filepath = path.join(BACKUP_DIR, filename);
+  if (!fs.existsSync(filepath)) return res.status(404).json({ error: 'Niet gevonden.' });
+  res.download(filepath, filename);
+});
+
 // ─── SPA fallbacks ─────────────────────────────────────────────────────────
 
 app.get('/admin', (req, res) => {
@@ -207,8 +384,23 @@ app.get('/admin/', (req, res) => {
 
 // ─── Start ─────────────────────────────────────────────────────────────────
 
+function cleanupPastDates() {
+  const today = toLocalISO(new Date());
+  if (!queries.countPastDates(today)) return;
+  try {
+    const backup = createBackup();
+    const deleted = queries.deletePastDates(today);
+    console.log(`Wekelijkse opschoning: ${deleted} gepasseerde datums verwijderd (backup: ${backup}).`);
+  } catch (err) {
+    console.error('Wekelijkse opschoning mislukt, er is niets verwijderd:', err);
+  }
+}
+
 initDb();
 app.listen(PORT, () => {
   console.log(`H&I Rooster draait op http://localhost:${PORT}`);
   console.log(`Adminpanel: http://localhost:${PORT}/admin`);
 });
+setInterval(() => {
+  if (new Date().getDay() === 1) cleanupPastDates();
+}, 60 * 60 * 1000);

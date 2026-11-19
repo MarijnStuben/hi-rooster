@@ -289,6 +289,24 @@ legend {
 }
 .toast.hidden { display: none; }
 
+.roster-footer-note {
+  margin: 32px auto 16px;
+  max-width: 700px;
+  text-align: center;
+  font-size: 0.875rem;
+  color: var(--grey);
+  padding: 14px 20px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+.roster-footer-note a {
+  color: var(--blue);
+  font-weight: 600;
+  text-decoration: none;
+}
+.roster-footer-note a:hover { text-decoration: underline; }
+
 @media (max-width: 540px) {
   .form-row { flex-direction: column; gap: 8px; }
   .dates-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
