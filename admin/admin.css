@@ -590,9 +590,74 @@ body {
 }
 .backup-table tr:hover td { background: var(--grey-light); }
 
-@media (max-width: 600px) {
+/* ── Mobiel ─────────────────────────────────────────────────────────── */
+
+/* Velden mogen altijd smaller worden dan hun standaardbreedte. */
+.form-grid label, .edit-form-row label { min-width: 0; }
+.form-grid input, .edit-form-row input, .msg-textarea { min-width: 0; max-width: 100%; }
+
+/* Hoge vensters: bovenkant blijft bereikbaar bij scrollen. */
+.modal-overlay { align-items: flex-start; }
+.modal { margin: auto 0; }
+
+@media (max-width: 700px) {
+  :root { --nav-h: 96px; }
+
+  /* Menubalk in twee regels: naam + uitloggen, daaronder de tabbladen. */
+  .admin-nav {
+    flex-wrap: wrap;
+    align-content: center;
+    padding: 6px 12px;
+    gap: 4px 8px;
+  }
+  .nav-brand { display: block; margin-right: 0; font-size: 0.95rem; }
+  .nav-user { gap: 8px; font-size: 0.8rem; }
+  .nav-links {
+    order: 3;
+    flex: 1 1 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    margin: 0 -4px;
+  }
+  .nav-links::-webkit-scrollbar { display: none; }
+  .nav-links .nav-btn { padding: 8px 10px; font-size: 0.85rem; white-space: nowrap; flex-shrink: 0; }
+
+  .view { padding: 0 12px; margin-top: calc(var(--nav-h) + 16px); }
+  .view-header > div { flex-wrap: wrap; }
+
+  /* Klinieken: datums onder elkaar, knoppen naast elkaar. */
+  .clinic-admin-header, .clinic-admin-body { padding-left: 12px; padding-right: 12px; }
+  .dates-admin-grid { grid-template-columns: 1fr; }
+
+  /* Wachtrij */
+  .queue-header { flex-wrap: wrap; }
+  .queue-actions { flex-wrap: wrap; }
+
+  /* Weekoverzicht: datum boven, knoppen eronder naast elkaar. */
+  .week-nav { flex-wrap: wrap; width: 100%; justify-content: space-between; }
+  #week-label { order: -1; flex: 1 1 100%; min-width: 0; }
+  .week-nav .btn-secondary { flex: 1 1 0; }
+  .week-entry-body, .week-entry-header { padding-left: 12px; padding-right: 12px; }
+
+  /* Vensters (kliniek, aanmelding bewerken, datums) */
+  .modal-overlay { padding: 10px; }
+  .modal { padding: 22px 16px 18px; }
   .form-grid { grid-template-columns: 1fr; }
-  .nav-links .nav-btn { padding: 6px 8px; font-size: 0.8rem; }
-  .nav-brand { display: none; }
-  .dates-admin-grid { grid-template-columns: 1fr 1fr; }
+  .edit-form-row { flex-direction: column; gap: 10px; }
+  .modal fieldset { padding: 12px !important; }
+  .form-actions { flex-wrap: wrap; }
+  .form-actions button { flex: 1 1 auto; }
+
+  /* Voorkom inzoomen op iPhone bij het aantikken van een veld. */
+  input, select, textarea { font-size: 16px !important; }
+
+  /* Back-ups: kolommen smaller, lange bestandsnamen mogen afbreken. */
+  .backup-table td, .backup-table th { padding: 8px 6px; font-size: 0.8rem; }
+  .backup-table td { word-break: break-word; }
+  .backup-table td:first-child, .backup-table th:first-child { padding-left: 10px; }
+  .backup-table td:last-child { padding-right: 8px; text-align: right; }
+  .backup-table td:last-child a { white-space: nowrap; word-break: normal; }
+  /* Bestandsnaam is op een telefoon overbodig: de datum zegt genoeg. */
+  .backup-table th:nth-child(2), .backup-table td:nth-child(2) { display: none; }
 }
