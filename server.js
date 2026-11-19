@@ -2,6 +2,7 @@ const express = require('express');
 const session = require('express-session');
 const bcrypt = require('bcryptjs');
 const path = require('path');
+const crypto = require('crypto');
 const { initDb, queries } = require('./db');
 
 const app = express();
@@ -18,8 +19,26 @@ app.use(session({
   cookie: { maxAge: 8 * 60 * 60 * 1000 }, // 8 uur
 }));
 
+// Optionele API-sleutel voor beheer zonder in te loggen (bijv. vanuit Claude).
+// Alleen actief als ADMIN_API_TOKEN is ingesteld (minimaal 32 tekens).
+const ADMIN_API_TOKEN = process.env.ADMIN_API_TOKEN || '';
+if (ADMIN_API_TOKEN && ADMIN_API_TOKEN.length < 32) {
+  console.warn('ADMIN_API_TOKEN is te kort (minimaal 32 tekens) en wordt genegeerd.');
+}
+
+function hasValidApiToken(req) {
+  if (ADMIN_API_TOKEN.length < 32) return false;
+  const header = req.get('authorization') || '';
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  if (!match) return false;
+  const a = crypto.createHash('sha256').update(match[1].trim()).digest();
+  const b = crypto.createHash('sha256').update(ADMIN_API_TOKEN).digest();
+  return crypto.timingSafeEqual(a, b);
+}
+
 function requireAuth(req, res, next) {
   if (req.session && req.session.userId) return next();
+  if (hasValidApiToken(req)) return next();
   res.status(401).json({ error: 'Niet ingelogd' });
 }
 
