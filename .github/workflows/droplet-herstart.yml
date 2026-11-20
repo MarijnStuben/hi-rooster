@@ -9,7 +9,7 @@ on:
 
 jobs:
   herstart:
-    if: contains(github.event.head_commit.message, '[droplet-check]') || contains(github.event.head_commit.message, '[droplet-reboot]')
+    if: contains(github.event.head_commit.message, '[droplet-check]') || contains(github.event.head_commit.message, '[droplet-reboot]') || contains(github.event.head_commit.message, '[pm2-diagnose]')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -23,7 +23,14 @@ jobs:
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H "$DEPLOY_HOST" > ~/.ssh/known_hosts 2>/dev/null
+      - name: pm2 bekijken (alleen lezen)
+        if: contains(github.event.head_commit.message, '[pm2-diagnose]')
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: ssh -i ~/.ssh/deploy_key "$DEPLOY_USER@$DEPLOY_HOST" 'bash -s' < deploy/pm2-diagnose.sh
       - name: Controleren en eventueel herstarten
+        if: contains(github.event.head_commit.message, '[droplet-check]') || contains(github.event.head_commit.message, '[droplet-reboot]')
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
