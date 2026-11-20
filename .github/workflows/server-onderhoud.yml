@@ -1,0 +1,32 @@
+name: Server-onderhoud
+
+# Draait alleen bij een push naar een claude/-branch met in het commitbericht:
+#   [server-check]   -> alleen bekijken (verandert niets)
+#   [nginx-update]   -> nginx bijwerken via apt en herstarten
+on:
+  push:
+    branches: ['claude/**']
+
+jobs:
+  onderhoud:
+    if: contains(github.event.head_commit.message, '[server-check]') || contains(github.event.head_commit.message, '[nginx-update]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: SSH instellen
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$DEPLOY_HOST" > ~/.ssh/known_hosts 2>/dev/null
+      - name: Uitvoeren op droplet
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DO_UPGRADE: ${{ contains(github.event.head_commit.message, '[nginx-update]') && '1' || '0' }}
+        run: |
+          ssh -i ~/.ssh/deploy_key "$DEPLOY_USER@$DEPLOY_HOST" "DO_UPGRADE=$DO_UPGRADE bash -s" < deploy/nginx-update.sh
