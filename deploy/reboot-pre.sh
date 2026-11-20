@@ -9,7 +9,8 @@ systemctl is-enabled nginx || fail=1
 echo "=== pm2 start vanzelf op? ==="
 systemctl is-enabled pm2-root || { echo "pm2-root service ontbreekt"; fail=1; }
 echo "=== pm2 onthoudt hi-rooster? ==="
-grep -q '"name":"hi-rooster"' /root/.pm2/dump.pm2 2>/dev/null && echo ja || { echo "hi-rooster staat niet in /root/.pm2/dump.pm2"; fail=1; }
+node -e 'const a=JSON.parse(require("fs").readFileSync("/root/.pm2/dump.pm2","utf8"));process.exit(a.some(p=>p.name==="hi-rooster"&&p.pm_exec_path==="/var/www/hi-rooster/server.js")?0:1)' \
+  && echo ja || { echo "hi-rooster staat niet (goed) in /root/.pm2/dump.pm2"; fail=1; }
 echo "=== Schijfruimte ==="; df -h / | tail -1
 echo "=== Database aanwezig? ==="; ls -l /var/www/hi-rooster/data/hi-rooster.db || fail=1
 
@@ -19,14 +20,18 @@ if [ "$fail" != 0 ]; then
 fi
 
 if [ "${DO_REBOOT:-0}" = "1" ]; then
-  mkdir -p /var/www/hi-rooster/backups
+  cd /var/www/hi-rooster && mkdir -p backups
   stamp=$(date +%Y%m%d-%H%M%S)
   if command -v sqlite3 >/dev/null; then
-    sqlite3 /var/www/hi-rooster/data/hi-rooster.db ".backup '/var/www/hi-rooster/backups/pre-reboot-$stamp.db'"
+    sqlite3 data/hi-rooster.db ".backup 'backups/pre-reboot-$stamp.db'" && echo "back-up via sqlite3"
   else
-    cp /var/www/hi-rooster/data/hi-rooster.db "/var/www/hi-rooster/backups/pre-reboot-$stamp.db"
+    # Zonder sqlite3: kopieer ook de WAL-bestanden, anders ontbreken de nieuwste wijzigingen.
+    for ext in "" -wal -shm; do [ -f "data/hi-rooster.db$ext" ] && cp "data/hi-rooster.db$ext" "backups/pre-reboot-$stamp.db$ext"; done
+    echo "back-up via kopie (incl. WAL)"
   fi
-  ls -l /var/www/hi-rooster/backups/pre-reboot-$stamp.db
+  ls -l backups/pre-reboot-$stamp.db*
+  # Sla de huidige pm2-toestand op, zodat de app na de herstart precies zo terugkomt.
+  pm2 save --force 2>&1 | tail -2
   echo "Herstart gepland over 3 seconden."
   nohup bash -c 'sleep 3; systemctl reboot' >/dev/null 2>&1 &
 fi

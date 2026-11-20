@@ -11,9 +11,10 @@ if [ -f data/hi-rooster.db ]; then
   if command -v sqlite3 >/dev/null; then
     sqlite3 data/hi-rooster.db ".backup 'backups/pre-deploy-$stamp.db'"
   else
-    cp data/hi-rooster.db "backups/pre-deploy-$stamp.db"
+    # Zonder sqlite3: kopieer ook de WAL-bestanden, anders ontbreken de nieuwste wijzigingen.
+    for ext in "" -wal -shm; do [ -f "data/hi-rooster.db$ext" ] && cp "data/hi-rooster.db$ext" "backups/pre-deploy-$stamp.db$ext"; done
   fi
-  ls -1t backups/pre-deploy-*.db | tail -n +21 | xargs -r rm --
+  ls -1t backups/pre-deploy-*.db | tail -n +21 | while read -r f; do rm -f -- "$f" "$f-wal" "$f-shm"; done
   echo "Back-up gemaakt: backups/pre-deploy-$stamp.db"
 fi
 
