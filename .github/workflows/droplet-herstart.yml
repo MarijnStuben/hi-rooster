@@ -1,0 +1,50 @@
+name: Droplet herstarten
+
+# Draait alleen bij een push naar een claude/-branch met in het commitbericht:
+#   [droplet-check]   -> alleen controleren of een herstart veilig is
+#   [droplet-reboot]  -> controleren, back-up maken, herstarten en daarna controleren
+on:
+  push:
+    branches: ['claude/**']
+
+jobs:
+  herstart:
+    if: contains(github.event.head_commit.message, '[droplet-check]') || contains(github.event.head_commit.message, '[droplet-reboot]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: SSH instellen
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$DEPLOY_HOST" > ~/.ssh/known_hosts 2>/dev/null
+      - name: Controleren en eventueel herstarten
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DO_REBOOT: ${{ contains(github.event.head_commit.message, '[droplet-reboot]') && '1' || '0' }}
+        run: |
+          ssh -i ~/.ssh/deploy_key "$DEPLOY_USER@$DEPLOY_HOST" "DO_REBOOT=$DO_REBOOT bash -s" < deploy/reboot-pre.sh
+      - name: Wachten tot de droplet terug is en controleren
+        if: contains(github.event.head_commit.message, '[droplet-reboot]')
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          sleep 30
+          for i in $(seq 1 30); do
+            if ssh -i ~/.ssh/deploy_key -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new "$DEPLOY_USER@$DEPLOY_HOST" true 2>/dev/null; then
+              echo "Droplet is terug na ~$((30 + i*10)) seconden."
+              sleep 15
+              ssh -i ~/.ssh/deploy_key "$DEPLOY_USER@$DEPLOY_HOST" 'bash -s' < deploy/reboot-post.sh
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Droplet reageert na 6 minuten nog niet."
+          exit 1
