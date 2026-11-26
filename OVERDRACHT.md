@@ -59,6 +59,7 @@ Live code terughalen naar GitHub (als er ooit direct op de server is gewerkt): p
 - **Gepasseerde datums verwijderen:** verwijdert datums vóór vandaag, met automatische backup vooraf.
 - **Weekoverzicht:** berichten voor vrijwilligers en de kliniek, en het vinkje "aangemeld bij kliniek".
 - **Backups:** overzicht, downloaden en handmatig een backup maken (alleen beheerders).
+- **Voorlichters:** profielen en ervaring bekijken, zoeken, bewerken, samenvoegen, verwijderen (alleen beheerders).
 - **Gebruikers:** aanmelders en beheerders aanmaken, wachtwoord resetten, verwijderen (alleen beheerders).
 
 ## Gebruikers en rechten
@@ -77,6 +78,29 @@ Regels:
 - Bestaande gebruikers werden bij de migratie `admin`, zodat niemand toegang verloor. Inloggen is niet hoofdlettergevoelig.
 - Gebruikers kunnen zichzelf of de laatste beheerder niet verwijderen.
 - De API-sleutel (`ADMIN_API_TOKEN`) heeft altijd beheerdersrechten.
+
+## Voorlichters (profielen en ervaring)
+
+Elke persoon die zich aanmeldt krijgt automatisch een **voorlichtersprofiel** (`educators`): voornaam, achternaam, geboortedatum, 06-nummer. Het tabblad **Voorlichters** (alleen beheerders) toont per profiel wie, wat en waar, en hoe vaak: *Voorlichting gegeven kliniek: N* en *Voorlichting gegeven PI: N*, met een vinkje als iemand eerder voorlichting gaf. In de wachtrij en het weekoverzicht staat dezelfde ervaring bij elke persoon (ook voor aanmelders, voor hun eigen klinieken).
+
+- **Soort locatie:** elke kliniek is `kliniek` of `pi` (`clinics.type`). Bij de migratie is dat geraden aan de naam (P.I. / penitentiair / gevangenis = PI). Aanpassen kan bij Klinieken → Bewerken.
+- **Wat telt als "gegeven":** een goedgekeurde aanmelding met een datum van vandaag of eerder, plus de geschiedenis (`educator_sessions`) en handmatig ingevulde eerdere aantallen (`prior_kliniek`, `prior_pi`).
+- **Geschiedenis blijft bewaard:** de wekelijkse opschoning verwijdert datums en aanmeldingen, maar bewaart eerst de goedgekeurde voorlichtingen in `educator_sessions`. Dat geldt ook bij het handmatig verwijderen van een datum of kliniek.
+- **Herkenning:** dezelfde persoon wordt herkend aan naam + geboortedatum (hoofdletters en accenten maken niet uit). Zonder geboortedatum wordt op naam gematcht als die maar bij één profiel hoort. Profielen met ontbrekende gegevens krijgen het label *Onvolledig*. Typfouten geven een tweede profiel; die kun je **samenvoegen** (de oude schrijfwijze blijft herkend).
+- **Profiel verwijderen** haalt het profiel en de ervaring weg; de aanmeldingen zelf blijven tot de opschoning, maar krijgen geen nieuw profiel.
+- **Privacy:** profielen bewaren naam, geboortedatum en 06-nummer ook nadat de aanmelding is opgeschoond. Verwijder een profiel als iemand daarom vraagt.
+
+### Geschiedenis importeren uit back-ups
+
+`tools/import-voorlichters.js` leest alle back-ups (`backups/*.sql` en `*.db`) en voegt goedgekeurde voorlichtingen uit het verleden toe. Op de server:
+
+```bash
+cd /var/www/hi-rooster
+node tools/import-voorlichters.js            # proefrun, wijzigt niets
+node tools/import-voorlichters.js --apply    # echt uitvoeren (maakt eerst backups/pre-import-*.db)
+```
+
+Of via GitHub: een commit op een `claude/`-branch met `[import-dry]` of `[import-apply]` in het bericht. Meerdere keren draaien is veilig (niets wordt dubbel geteld), maar draai het liever eenmalig: een verwijderd of samengevoegd profiel kan door een nieuwe import terugkomen. Er worden maximaal 14 back-ups bewaard, dus de geschiedenis reikt niet verder terug dan die back-ups. Eerdere voorlichtingen kunnen per profiel handmatig worden opgeteld.
 
 ## Domeinregels
 

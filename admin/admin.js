@@ -139,6 +139,19 @@ async function switchView(view) {
   else if (view === 'week') loadWeek(currentWeekStart);
   else if (view === 'backups') loadBackups();
   else if (view === 'users') loadUsers();
+  else if (view === 'educators') loadEducators();
+}
+
+// ─── Ervaring van voorlichters ───────────────────────────────────────────────
+// Toont of iemand eerder voorlichting heeft gegeven en hoe vaak (kliniek / PI).
+function experienceHtml(x) {
+  if (!x) return '';
+  const label = x.total > 0
+    ? '<span class="exp-badge exp-yes">✓ Eerder voorlichting gegeven</span>'
+    : '<span class="exp-badge exp-new">Nieuw: nog niet eerder voorlichting gegeven</span>';
+  return `<div class="exp-line">${label}
+    <span class="exp-count">Voorlichting gegeven kliniek: <strong>${x.kliniek}</strong></span>
+    <span class="exp-count">Voorlichting gegeven PI: <strong>${x.pi}</strong></span></div>`;
 }
 
 // ─── Queue ───────────────────────────────────────────────────────────────────
@@ -202,6 +215,7 @@ function renderQueue(items) {
                 ${p.phone ? `<span>Tel: <strong>${esc(p.phone)}</strong></span>` : ''}
                 ${p.mobile ? `<span>06: <strong>${esc(p.mobile)}</strong></span>` : ''}
               </div>
+              ${experienceHtml(p.experience)}
             </div>
           `).join('')}
         </div>
@@ -260,7 +274,7 @@ function renderClinics(clinics) {
     <div class="clinic-admin-card">
       <div class="clinic-admin-header">
         <div>
-          <h3>${esc(c.name)}</h3>
+          <h3>${esc(c.name)} ${c.type === 'pi' ? '<span class="role-badge role-pi">PI</span>' : ''}</h3>
           <div class="clinic-admin-meta">
             ${c.frequency ? esc(c.frequency) + ' &bull; ' : ''}
             ${c.time ? esc(c.time) + ' &bull; ' : ''}
@@ -361,6 +375,7 @@ function openClinicModal(id) {
       const c = clinics.find(x => x.id === id);
       if (!c) return;
       fillManagerSelect(c.manager_id);
+      document.getElementById('c-type').value = c.type === 'pi' ? 'pi' : 'kliniek';
       document.getElementById('c-name').value = c.name;
       document.getElementById('c-address').value = c.address || '';
       document.getElementById('c-freq').value = c.frequency || '';
@@ -371,6 +386,7 @@ function openClinicModal(id) {
     });
   } else {
     document.getElementById('clinic-form').reset();
+    document.getElementById('c-type').value = 'kliniek';
     document.getElementById('c-public-signup').checked = true;
   }
   document.getElementById('clinic-modal-overlay').classList.remove('hidden');
@@ -391,6 +407,7 @@ document.getElementById('clinic-form').addEventListener('submit', async e => {
     contact_name: document.getElementById('c-contact-name').value.trim(),
     contact_info: document.getElementById('c-contact-info').value.trim(),
     allow_public_signup: document.getElementById('c-public-signup').checked,
+    type: document.getElementById('c-type').value,
     manager_id: document.getElementById('c-manager').value ? Number(document.getElementById('c-manager').value) : null,
   };
   const errEl = document.getElementById('clinic-form-error');
@@ -717,6 +734,7 @@ function renderWeekEntry(entry) {
                   ${p.birth_date ? `<span>Geboren: <strong>${fmtDate(p.birth_date)}</strong></span>` : ''}
                   ${tel ? `<span>📞 <strong>${esc(tel)}</strong></span>` : ''}
                 </div>
+                ${experienceHtml(p.experience)}
               </div>`; }).join('')}
           </div>
           <div class="msg-block">
@@ -869,6 +887,147 @@ function fmtSize(bytes) {
   if (bytes < 1024) return bytes + ' B';
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+// ─── Voorlichters (alleen beheerder) ────────────────────────────────────────
+let educatorsData = [];
+
+async function loadEducators() {
+  const el = document.getElementById('educators-content');
+  el.innerHTML = '<div style="color:var(--grey);padding:20px">Laden…</div>';
+  try {
+    const res = await fetch('/api/admin/educators');
+    if (!res.ok) return;
+    educatorsData = await res.json();
+    renderEducators();
+  } catch {
+    el.innerHTML = '<div style="color:var(--red)">Fout bij laden van voorlichters.</div>';
+  }
+}
+
+document.getElementById('educator-search').addEventListener('input', () => renderEducators());
+document.getElementById('educator-filter').addEventListener('change', () => renderEducators());
+
+function educatorName(e) { return `${e.first_name} ${e.last_name}`.trim(); }
+
+function renderEducators() {
+  const el = document.getElementById('educators-content');
+  const q = document.getElementById('educator-search').value.trim().toLowerCase();
+  const filter = document.getElementById('educator-filter').value;
+  const digits = q.replace(/\D/g, '');
+  const list = educatorsData.filter(e => {
+    if (filter === 'experienced' && !e.experienced) return false;
+    if (filter === 'new' && e.experienced) return false;
+    if (filter === 'incomplete' && !e.incomplete) return false;
+    if (!q) return true;
+    const hay = `${e.first_name} ${e.last_name} ${e.last_name} ${e.first_name} ${e.birth_date} ${fmtDate(e.birth_date)}`.toLowerCase();
+    return hay.includes(q) || (digits.length >= 3 && e.phone.replace(/\D/g, '').includes(digits));
+  });
+
+  const exp = educatorsData.filter(e => e.experienced).length;
+  document.getElementById('educators-count').textContent =
+    `${educatorsData.length} voorlichters · ${exp} met ervaring` + (list.length !== educatorsData.length ? ` · ${list.length} getoond` : '');
+
+  if (!list.length) {
+    el.innerHTML = `<div class="empty-state">${educatorsData.length ? 'Geen voorlichters gevonden.' : 'Nog geen voorlichters. Ze verschijnen hier zodra iemand zich aanmeldt.'}</div>`;
+    return;
+  }
+  el.innerHTML = list.map(e => `
+    <div class="educator-card">
+      <div class="educator-head">
+        <div class="educator-name">${esc(educatorName(e))}
+          ${e.incomplete ? '<span class="role-badge role-pending" title="Achternaam, geboortedatum of 06-nummer ontbreekt">Onvolledig</span>' : ''}
+        </div>
+        <button class="btn-secondary" style="font-size:.8rem;padding:6px 12px" onclick="openEducatorModal(${e.id})">Bewerken</button>
+      </div>
+      <div class="educator-details">
+        <span>Geboren: <strong>${e.birth_date ? fmtDate(e.birth_date) : '—'}</strong></span>
+        <span>06: <strong>${e.phone ? esc(e.phone) : '—'}</strong></span>
+      </div>
+      ${experienceHtml({ total: e.total, kliniek: e.kliniek, pi: e.pi })}
+      <div class="educator-where">
+        ${e.places.length
+          ? 'Waar: ' + e.places.map(p => `<span class="place-chip ${p.type === 'pi' ? 'place-pi' : ''}">${esc(p.name)} <strong>×${p.n}</strong></span>`).join(' ')
+          : '<span style="color:var(--grey)">Nog geen voorlichting gegeven in dit rooster.</span>'}
+        ${e.prior_kliniek || e.prior_pi ? `<div class="hint" style="margin-top:4px">Waarvan eerder (handmatig): kliniek ${e.prior_kliniek}, PI ${e.prior_pi}</div>` : ''}
+      </div>
+      <div class="educator-foot">
+        ${e.last_date ? `Laatst: ${fmtDate(e.last_date)}` : ''}
+        ${e.upcoming ? ` · Ingepland: ${e.upcoming}` : ''}
+        ${e.pending ? ` · In wachtrij: ${e.pending}` : ''}
+      </div>
+    </div>`).join('');
+}
+
+function openEducatorModal(id) {
+  const e = educatorsData.find(x => x.id === id);
+  if (!e) return;
+  document.getElementById('ed-id').value = id;
+  document.getElementById('ed-first').value = e.first_name;
+  document.getElementById('ed-last').value = e.last_name;
+  document.getElementById('ed-birth').value = e.birth_date || '';
+  document.getElementById('ed-phone').value = e.phone || '';
+  document.getElementById('ed-prior-kliniek').value = e.prior_kliniek;
+  document.getElementById('ed-prior-pi').value = e.prior_pi;
+  document.getElementById('educator-form-error').classList.add('hidden');
+  const sel = document.getElementById('ed-merge-target');
+  sel.innerHTML = '<option value="">Kies het profiel om mee samen te voegen…</option>' +
+    educatorsData.filter(x => x.id !== id)
+      .map(x => `<option value="${x.id}">${esc(educatorName(x))}${x.birth_date ? ' (' + fmtDate(x.birth_date) + ')' : ''}</option>`).join('');
+  document.getElementById('educator-modal-overlay').classList.remove('hidden');
+}
+function closeEducatorModal() { document.getElementById('educator-modal-overlay').classList.add('hidden'); }
+
+document.getElementById('educator-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const errEl = document.getElementById('educator-form-error');
+  errEl.classList.add('hidden');
+  const id = document.getElementById('ed-id').value;
+  const res = await fetch(`/api/admin/educators/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      first_name: document.getElementById('ed-first').value,
+      last_name: document.getElementById('ed-last').value,
+      birth_date: document.getElementById('ed-birth').value,
+      phone: document.getElementById('ed-phone').value,
+      prior_kliniek: document.getElementById('ed-prior-kliniek').value,
+      prior_pi: document.getElementById('ed-prior-pi').value,
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) { errEl.textContent = data.error; errEl.classList.remove('hidden'); return; }
+  closeEducatorModal();
+  loadEducators();
+});
+
+async function mergeEducatorProfile() {
+  const id = document.getElementById('ed-id').value;
+  const target = document.getElementById('ed-merge-target').value;
+  const errEl = document.getElementById('educator-form-error');
+  errEl.classList.add('hidden');
+  if (!target) { errEl.textContent = 'Kies eerst het profiel om mee samen te voegen.'; errEl.classList.remove('hidden'); return; }
+  const me_ = educatorsData.find(x => x.id === Number(id)), other = educatorsData.find(x => x.id === Number(target));
+  if (!confirm(`"${educatorName(me_)}" samenvoegen met "${educatorName(other)}"? Dit profiel verdwijnt; aanmeldingen en aantallen gaan naar "${educatorName(other)}". Dit kan niet ongedaan gemaakt worden.`)) return;
+  const res = await fetch(`/api/admin/educators/${id}/merge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ target_id: Number(target) }),
+  });
+  const data = await res.json();
+  if (!res.ok) { errEl.textContent = data.error; errEl.classList.remove('hidden'); return; }
+  closeEducatorModal();
+  loadEducators();
+}
+
+async function deleteEducatorProfile() {
+  const id = document.getElementById('ed-id').value;
+  const e = educatorsData.find(x => x.id === Number(id));
+  if (!confirm(`Het profiel van "${educatorName(e)}" verwijderen, inclusief de opgebouwde ervaring? De aanmeldingen zelf blijven bestaan. Dit kan niet ongedaan gemaakt worden.`)) return;
+  const res = await fetch(`/api/admin/educators/${id}`, { method: 'DELETE' });
+  if (!res.ok) return alert((await res.json()).error || 'Verwijderen mislukt.');
+  closeEducatorModal();
+  loadEducators();
 }
 
 // ─── Gebruikers (alleen beheerder) ──────────────────────────────────────────

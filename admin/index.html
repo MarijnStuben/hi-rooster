@@ -32,6 +32,7 @@
         </button>
         <button class="nav-btn" data-view="clinics">Klinieken</button>
         <button class="nav-btn" data-view="week">Weekoverzicht</button>
+        <button class="nav-btn admin-only" data-view="educators">Voorlichters</button>
         <button class="nav-btn admin-only" data-view="users">Gebruikers</button>
         <button class="nav-btn admin-only" data-view="backups">Backups</button>
       </div>
@@ -75,6 +76,24 @@
       </div>
       <div id="week-content"></div>
     </div>
+    <!-- Voorlichters view -->
+    <div id="view-educators" class="view hidden">
+      <div class="view-header">
+        <h2>Voorlichters</h2>
+        <span id="educators-count" class="view-count"></span>
+      </div>
+      <div class="filter-bar">
+        <input type="search" id="educator-search" placeholder="Zoek op naam, 06-nummer of geboortedatum" autocomplete="off">
+        <select id="educator-filter">
+          <option value="all">Alle voorlichters</option>
+          <option value="experienced">Eerder voorlichting gegeven</option>
+          <option value="new">Nog niet eerder voorlichting gegeven</option>
+          <option value="incomplete">Onvolledig profiel</option>
+        </select>
+      </div>
+      <div id="educators-content"></div>
+    </div>
+
     <!-- Gebruikers view -->
     <div id="view-users" class="view hidden">
       <div class="view-header">
@@ -110,6 +129,12 @@
           <label>Tijdstip<input type="text" id="c-time" placeholder="bijv. 20:00–21:00"></label>
           <label>Contactpersoon kliniek<input type="text" id="c-contact-name"></label>
           <label>Telefoonnummer / e-mail<input type="text" id="c-contact-info"></label>
+          <label class="full">Soort locatie
+            <select id="c-type">
+              <option value="kliniek">Kliniek</option>
+              <option value="pi">PI (gevangenis)</option>
+            </select>
+          </label>
           <label class="full">Verantwoordelijke voor aanmeldingen
             <select id="c-manager"><option value="">— Nog niemand —</option></select>
           </label>
@@ -215,6 +240,45 @@
       <div class="form-actions">
         <button class="btn-secondary" onclick="closeEditRegModal()">Annuleren</button>
         <button class="btn-primary" id="edit-reg-save" onclick="saveEditReg()">Opslaan</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Voorlichter bewerken modal -->
+  <div id="educator-modal-overlay" class="modal-overlay hidden">
+    <div class="modal" style="max-width:520px">
+      <button class="modal-close" onclick="closeEducatorModal()">&times;</button>
+      <h2>Voorlichter bewerken</h2>
+      <form id="educator-form" novalidate>
+        <input type="hidden" id="ed-id">
+        <div class="form-grid">
+          <label>Voornaam<input type="text" id="ed-first"></label>
+          <label>Achternaam<input type="text" id="ed-last"></label>
+          <label>Geboortedatum<input type="date" id="ed-birth"></label>
+          <label>06-nummer<input type="tel" id="ed-phone" placeholder="bijv. 06-12345678"></label>
+        </div>
+        <fieldset class="prior-box">
+          <legend>Eerder voorlichting gegeven (vóór dit rooster)</legend>
+          <p class="hint" style="margin:0 0 10px">Tel hier voorlichtingen bij die niet in dit rooster staan. Wat het rooster zelf kent wordt automatisch meegeteld.</p>
+          <div class="form-grid">
+            <label>Kliniek<input type="number" id="ed-prior-kliniek" min="0" max="1000" inputmode="numeric"></label>
+            <label>PI<input type="number" id="ed-prior-pi" min="0" max="1000" inputmode="numeric"></label>
+          </div>
+        </fieldset>
+        <div id="educator-form-error" class="error-msg hidden"></div>
+        <div class="form-actions">
+          <button type="button" class="btn-secondary" onclick="closeEducatorModal()">Annuleren</button>
+          <button type="submit" class="btn-primary">Opslaan</button>
+        </div>
+      </form>
+      <div class="educator-tools">
+        <h3>Dubbel profiel samenvoegen</h3>
+        <p class="hint" style="margin:0 0 8px">Staat deze persoon twee keer in de lijst (bijvoorbeeld door een typfout)? Voeg dit profiel dan samen met het juiste profiel. Aanmeldingen en aantallen gaan mee.</p>
+        <div class="pw-row">
+          <select id="ed-merge-target"></select>
+          <button type="button" class="btn-secondary" onclick="mergeEducatorProfile()">Samenvoegen</button>
+        </div>
+        <button type="button" class="btn-icon danger" style="margin-top:14px" onclick="deleteEducatorProfile()">Profiel verwijderen</button>
       </div>
     </div>
   </div>

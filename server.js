@@ -497,6 +497,54 @@ app.delete('/api/admin/users/:id', requireAuth, adminOnly, (req, res) => {
   res.json({ ok: true });
 });
 
+// ─── Voorlichters (alleen beheerder met volledige rechten) ──────────────────
+
+app.get('/api/admin/educators', requireAuth, adminOnly, (req, res) => {
+  res.json(queries.getEducators());
+});
+
+function educatorInput(body) {
+  const clean = v => (typeof v === 'string' ? v.trim().slice(0, 100) : '');
+  const count = v => { const n = Number(v === '' || v === undefined || v === null ? 0 : v); return Number.isInteger(n) && n >= 0 && n <= 1000 ? n : null; };
+  const d = {
+    first_name: clean(body.first_name), last_name: clean(body.last_name),
+    birth_date: clean(body.birth_date), phone: clean(body.phone),
+    prior_kliniek: count(body.prior_kliniek), prior_pi: count(body.prior_pi),
+  };
+  if (!d.first_name && !d.last_name) return { error: 'Vul minimaal een voornaam of achternaam in.' };
+  if (d.birth_date && !/^\d{4}-\d{2}-\d{2}$/.test(d.birth_date)) return { error: 'Geboortedatum is ongeldig.' };
+  if (d.prior_kliniek === null || d.prior_pi === null) return { error: 'Aantallen moeten hele getallen tussen 0 en 1000 zijn.' };
+  return { data: d };
+}
+
+app.put('/api/admin/educators/:id', requireAuth, adminOnly, (req, res) => {
+  const id = Number(req.params.id);
+  if (!queries.getEducatorById(id)) return res.status(404).json({ error: 'Voorlichter niet gevonden.' });
+  const { data, error } = educatorInput(req.body);
+  if (error) return res.status(400).json({ error });
+  queries.updateEducator(id, data);
+  res.json({ ok: true });
+});
+
+app.post('/api/admin/educators/:id/merge', requireAuth, adminOnly, (req, res) => {
+  const sourceId = Number(req.params.id), targetId = Number(req.body.target_id);
+  if (!queries.getEducatorById(sourceId) || !queries.getEducatorById(targetId)) {
+    return res.status(404).json({ error: 'Voorlichter niet gevonden.' });
+  }
+  if (sourceId === targetId) return res.status(400).json({ error: 'Kies een ander profiel om mee samen te voegen.' });
+  queries.mergeEducators(sourceId, targetId);
+  console.log(`Voorlichters samengevoegd: ${sourceId} -> ${targetId} door ${req.user.username}`);
+  res.json({ ok: true });
+});
+
+app.delete('/api/admin/educators/:id', requireAuth, adminOnly, (req, res) => {
+  const id = Number(req.params.id);
+  if (!queries.getEducatorById(id)) return res.status(404).json({ error: 'Voorlichter niet gevonden.' });
+  queries.deleteEducator(id);
+  console.log(`Voorlichtersprofiel verwijderd: ${id} door ${req.user.username}`);
+  res.json({ ok: true });
+});
+
 // ─── Backups ───────────────────────────────────────────────────────────────
 
 app.get('/api/admin/backups', requireAuth, adminOnly, (req, res) => {
