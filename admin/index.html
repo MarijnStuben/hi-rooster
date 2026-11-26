@@ -32,10 +32,12 @@
         </button>
         <button class="nav-btn" data-view="clinics">Klinieken</button>
         <button class="nav-btn" data-view="week">Weekoverzicht</button>
-        <button class="nav-btn" data-view="backups">Backups</button>
+        <button class="nav-btn admin-only" data-view="users">Gebruikers</button>
+        <button class="nav-btn admin-only" data-view="backups">Backups</button>
       </div>
       <div class="nav-user">
         <span id="nav-username"></span>
+        <button id="change-pw-btn" class="btn-logout">Wachtwoord</button>
         <button id="logout-btn" class="btn-logout">Uitloggen</button>
       </div>
     </nav>
@@ -54,8 +56,8 @@
       <div class="view-header">
         <h2>Klinieken</h2>
         <div style="display:flex;gap:8px">
-          <button class="btn-secondary" onclick="deletePastDates()">Gepasseerde datums verwijderen</button>
-          <button class="btn-primary" onclick="openClinicModal()">+ Nieuwe kliniek</button>
+          <button class="btn-secondary admin-only" onclick="deletePastDates()">Gepasseerde datums verwijderen</button>
+          <button class="btn-primary admin-only" onclick="openClinicModal()">+ Nieuwe kliniek</button>
         </div>
       </div>
       <div id="clinics-content"></div>
@@ -73,6 +75,16 @@
       </div>
       <div id="week-content"></div>
     </div>
+    <!-- Gebruikers view -->
+    <div id="view-users" class="view hidden">
+      <div class="view-header">
+        <h2>Gebruikers</h2>
+        <button class="btn-primary" onclick="openUserModal()">+ Nieuwe gebruiker</button>
+      </div>
+      <p class="scope-note" style="background:none;padding:0;margin-bottom:14px">Een aanmelder ziet alleen de wachtrij, het weekoverzicht en de datums van de klinieken waarvoor die verantwoordelijk is. Koppel een aanmelder aan een kliniek via <strong>Klinieken → Bewerken</strong>.</p>
+      <div id="users-content"></div>
+    </div>
+
     <!-- Backups view -->
     <div id="view-backups" class="view hidden">
       <div class="view-header">
@@ -98,6 +110,9 @@
           <label>Tijdstip<input type="text" id="c-time" placeholder="bijv. 20:00–21:00"></label>
           <label>Contactpersoon kliniek<input type="text" id="c-contact-name"></label>
           <label>Telefoonnummer / e-mail<input type="text" id="c-contact-info"></label>
+          <label class="full">Verantwoordelijke voor aanmeldingen
+            <select id="c-manager"><option value="">— Nog niemand —</option></select>
+          </label>
           <label class="full checkbox-label">
             <input type="checkbox" id="c-public-signup" checked>
             Publieke aanmeldingen toestaan
@@ -201,6 +216,86 @@
         <button class="btn-secondary" onclick="closeEditRegModal()">Annuleren</button>
         <button class="btn-primary" id="edit-reg-save" onclick="saveEditReg()">Opslaan</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Nieuwe gebruiker modal -->
+  <div id="user-modal-overlay" class="modal-overlay hidden">
+    <div class="modal" style="max-width:440px">
+      <button class="modal-close" onclick="closeUserModal()">&times;</button>
+      <h2>Nieuwe gebruiker</h2>
+      <form id="user-form" novalidate>
+        <div class="form-grid" style="grid-template-columns:1fr">
+          <label>Gebruikersnaam<input type="text" id="u-name" autocomplete="off" autocapitalize="off" placeholder="bijv. anna"></label>
+          <label>Tijdelijk wachtwoord
+            <div class="pw-row">
+              <input type="text" id="u-pass" autocomplete="off" autocapitalize="off" placeholder="minimaal 8 tekens">
+              <button type="button" class="btn-secondary" onclick="fillRandomPassword('u-pass')">Verzin</button>
+            </div>
+          </label>
+          <label>Rol
+            <select id="u-role">
+              <option value="manager">Aanmelder (alleen eigen klinieken)</option>
+              <option value="admin">Beheerder (volledige rechten)</option>
+            </select>
+          </label>
+        </div>
+        <p class="hint">De gebruiker moet dit wachtwoord bij de eerste keer inloggen wijzigen.</p>
+        <div id="user-form-error" class="error-msg hidden"></div>
+        <div class="form-actions">
+          <button type="button" class="btn-secondary" onclick="closeUserModal()">Annuleren</button>
+          <button type="submit" class="btn-primary">Aanmaken</button>
+        </div>
+      </form>
+      <div id="user-result" class="result-box hidden"></div>
+    </div>
+  </div>
+
+  <!-- Wachtwoord resetten modal -->
+  <div id="reset-modal-overlay" class="modal-overlay hidden">
+    <div class="modal" style="max-width:440px">
+      <button class="modal-close" onclick="closeResetModal()">&times;</button>
+      <h2>Nieuw wachtwoord</h2>
+      <p id="reset-modal-user" class="hint lead"></p>
+      <form id="reset-form" novalidate>
+        <input type="hidden" id="reset-user-id">
+        <div class="form-grid" style="grid-template-columns:1fr">
+          <label>Tijdelijk wachtwoord
+            <div class="pw-row">
+              <input type="text" id="reset-pass" autocomplete="off" autocapitalize="off" placeholder="minimaal 8 tekens">
+              <button type="button" class="btn-secondary" onclick="fillRandomPassword('reset-pass')">Verzin</button>
+            </div>
+          </label>
+        </div>
+        <p class="hint">De gebruiker wordt direct uitgelogd en moet bij het volgende inloggen een eigen wachtwoord kiezen.</p>
+        <div id="reset-form-error" class="error-msg hidden"></div>
+        <div class="form-actions">
+          <button type="button" class="btn-secondary" onclick="closeResetModal()">Annuleren</button>
+          <button type="submit" class="btn-primary">Opslaan</button>
+        </div>
+      </form>
+      <div id="reset-result" class="result-box hidden"></div>
+    </div>
+  </div>
+
+  <!-- Eigen wachtwoord wijzigen modal -->
+  <div id="pw-modal-overlay" class="modal-overlay hidden">
+    <div class="modal" style="max-width:440px">
+      <button class="modal-close" id="pw-close" onclick="closePasswordModal()">&times;</button>
+      <h2>Wachtwoord wijzigen</h2>
+      <p id="pw-forced-note" class="hint lead hidden">Je gebruikt nog een tijdelijk wachtwoord. Kies nu een eigen wachtwoord om verder te gaan.</p>
+      <form id="pw-form" novalidate>
+        <div class="form-grid" style="grid-template-columns:1fr">
+          <label>Huidig wachtwoord<input type="password" id="pw-current" autocomplete="current-password"></label>
+          <label>Nieuw wachtwoord<input type="password" id="pw-new" autocomplete="new-password" placeholder="minimaal 8 tekens"></label>
+          <label>Nieuw wachtwoord nogmaals<input type="password" id="pw-new2" autocomplete="new-password"></label>
+        </div>
+        <div id="pw-form-error" class="error-msg hidden"></div>
+        <div class="form-actions">
+          <button type="button" class="btn-secondary" id="pw-cancel" onclick="closePasswordModal()">Annuleren</button>
+          <button type="submit" class="btn-primary">Wijzigen</button>
+        </div>
+      </form>
     </div>
   </div>
 

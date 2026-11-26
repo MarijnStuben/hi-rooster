@@ -590,6 +590,76 @@ body {
 }
 .backup-table tr:hover td { background: var(--grey-light); }
 
+/* ── Gebruikers & rechten ───────────────────────────────────────────── */
+.scope-note {
+  background: var(--blue-light);
+  color: var(--grey);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: .85rem;
+  margin-bottom: 14px;
+}
+.scope-note strong { color: var(--text); }
+
+.user-card {
+  background: #fff;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 14px 18px;
+  margin-bottom: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.user-card-main { min-width: 0; flex: 1 1 260px; }
+.user-card-name { font-weight: 700; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.user-card-clinics { font-size: .85rem; color: var(--grey); margin-top: 4px; }
+.user-card-clinics strong { color: var(--text); font-weight: 600; }
+.user-card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.role-badge { font-size: .7rem; font-weight: 600; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
+.role-admin   { background: var(--blue); color: #fff; }
+.role-manager { background: var(--blue-light); color: var(--blue); }
+.role-pending { background: var(--orange-bg); color: var(--orange); }
+.role-you     { background: var(--green-bg); color: var(--green); }
+
+.form-grid select {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-size: .9rem;
+  color: var(--text);
+  background: #fff;
+  min-width: 0;
+  max-width: 100%;
+}
+.form-grid select:focus { outline: none; border-color: var(--blue); }
+
+.pw-row { display: flex; gap: 8px; align-items: stretch; }
+.pw-row input { flex: 1; min-width: 0; font-family: monospace; }
+.pw-row .btn-secondary { flex-shrink: 0; }
+
+.hint { font-size: .8rem; color: var(--grey); margin: 10px 0 0; }
+.hint.lead { margin: -8px 0 16px; }
+
+.result-box { margin-top: 4px; font-size: .9rem; }
+.result-box p { color: var(--grey); margin: 6px 0 10px; font-size: .85rem; }
+.result-pre {
+  background: var(--grey-light);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-family: monospace;
+  font-size: .85rem;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: all;
+}
+
+#nav-username { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px; }
+
 /* ── Mobiel ─────────────────────────────────────────────────────────── */
 
 /* Velden mogen altijd smaller worden dan hun standaardbreedte. */
@@ -600,30 +670,36 @@ body {
 .modal-overlay { align-items: flex-start; }
 .modal { margin: auto 0; }
 
-@media (max-width: 700px) {
-  :root { --nav-h: 96px; }
-
-  /* Menubalk in twee regels: naam + uitloggen, daaronder de tabbladen. */
+/* Kleine schermen: menubalk groeit mee (tabbladen mogen doorlopen op een tweede regel)
+   en schuift mee bovenaan het scherm. */
+@media (max-width: 900px) {
   .admin-nav {
+    position: sticky;
+    top: 0; left: auto; right: auto;
+    height: auto;
     flex-wrap: wrap;
     align-content: center;
-    padding: 6px 12px;
+    padding: 6px 12px 4px;
     gap: 4px 8px;
   }
   .nav-brand { display: block; margin-right: 0; font-size: 0.95rem; }
-  .nav-user { gap: 8px; font-size: 0.8rem; }
+  .nav-user { gap: 6px; font-size: 0.8rem; min-width: 0; }
+  .btn-logout { padding: 5px 9px; }
   .nav-links {
     order: 3;
     flex: 1 1 100%;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
+    flex-wrap: wrap;
+    gap: 2px 4px;
     margin: 0 -4px;
   }
-  .nav-links::-webkit-scrollbar { display: none; }
-  .nav-links .nav-btn { padding: 8px 10px; font-size: 0.85rem; white-space: nowrap; flex-shrink: 0; }
+  .nav-links .nav-btn { padding: 7px 10px; font-size: 0.85rem; white-space: nowrap; }
 
-  .view { padding: 0 12px; margin-top: calc(var(--nav-h) + 16px); }
+  .view { margin-top: 16px; }
+}
+
+@media (max-width: 700px) {
+  #nav-username { max-width: 70px; }
+  .view { padding: 0 12px; }
   .view-header > div { flex-wrap: wrap; }
 
   /* Klinieken: datums onder elkaar, knoppen naast elkaar. */
@@ -648,6 +724,13 @@ body {
   .modal fieldset { padding: 12px !important; }
   .form-actions { flex-wrap: wrap; }
   .form-actions button { flex: 1 1 auto; }
+
+  /* Gebruikers */
+  .user-card { padding: 12px; }
+  .user-card-actions { width: 100%; }
+  .user-card-actions > * { flex: 1 1 auto; }
+  .pw-row { flex-wrap: wrap; }
+  .pw-row input { flex: 1 1 140px; }
 
   /* Voorkom inzoomen op iPhone bij het aantikken van een veld. */
   input, select, textarea { font-size: 16px !important; }

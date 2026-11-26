@@ -1,14 +1,36 @@
 // ─── State ──────────────────────────────────────────────────────────────────
 let currentView = 'queue';
 let currentWeekStart = null;
+let me = null; // { username, role, must_change_password, clinics }
+
+const isAdmin = () => !!me && me.role === 'admin';
+
+// Eén plek die verlopen sessies en een verplichte wachtwoordwijziging afhandelt.
+const _fetch = window.fetch.bind(window);
+window.fetch = async (...args) => {
+  const res = await _fetch(...args);
+  const url = String(args[0]);
+  if (url.startsWith('/api/admin/') && url !== '/api/admin/login' && me) {
+    if (res.status === 401 && url !== '/api/admin/change-password') {
+      me = null;
+      showLoginScreen();
+    } else if (res.status === 403) {
+      try {
+        const data = await res.clone().json();
+        if (data.must_change_password) { me.must_change_password = true; showForcedPasswordChange(); }
+      } catch { /* geen JSON */ }
+    }
+  }
+  return res;
+};
 
 // ─── Init ────────────────────────────────────────────────────────────────────
 async function init() {
   try {
     const res = await fetch('/api/admin/me');
     if (res.ok) {
-      const data = await res.json();
-      showAdminPanel(data.username);
+      me = await res.json();
+      showAdminPanel();
     } else {
       showLoginScreen();
     }
@@ -17,15 +39,40 @@ async function init() {
   }
 }
 
+async function refreshMe() {
+  try {
+    const res = await fetch('/api/admin/me');
+    if (res.ok) me = await res.json();
+  } catch { /* laat de oude gegevens staan */ }
+}
+
+function applyRole() {
+  document.querySelectorAll('.admin-only').forEach(el => el.classList.toggle('hidden', !isAdmin()));
+}
+
+// Korte uitleg boven de lijsten voor aanmelders, zodat duidelijk is wat ze wel en niet zien.
+function scopeNoteHtml() {
+  if (isAdmin() || !me) return '';
+  if (!me.clinics.length) return '';
+  return `<div class="scope-note">Je ziet alleen jouw klinieken: <strong>${me.clinics.map(c => esc(c.name)).join(', ')}</strong></div>`;
+}
+
+function noClinicsHtml() {
+  return '<div class="empty-state">Je bent nog niet gekoppeld aan een kliniek. Vraag een beheerder om je als verantwoordelijke te koppelen.</div>';
+}
+const hasNoClinics = () => !isAdmin() && me && !me.clinics.length;
+
 function showLoginScreen() {
   document.getElementById('login-screen').classList.remove('hidden');
   document.getElementById('admin-panel').classList.add('hidden');
 }
 
-function showAdminPanel(username) {
+function showAdminPanel() {
   document.getElementById('login-screen').classList.add('hidden');
   document.getElementById('admin-panel').classList.remove('hidden');
-  document.getElementById('nav-username').textContent = username;
+  document.getElementById('nav-username').textContent = me.username;
+  applyRole();
+  if (me.must_change_password) { showForcedPasswordChange(); return; }
   switchView('queue');
 }
 
@@ -48,7 +95,9 @@ document.getElementById('login-form').addEventListener('submit', async e => {
     });
     const data = await res.json();
     if (res.ok) {
-      showAdminPanel(data.username);
+      const meRes = await _fetch('/api/admin/me');
+      me = await meRes.json();
+      showAdminPanel();
     } else {
       errEl.textContent = data.error;
       errEl.classList.remove('hidden');
@@ -63,6 +112,9 @@ document.getElementById('login-form').addEventListener('submit', async e => {
 
 document.getElementById('logout-btn').addEventListener('click', async () => {
   await fetch('/api/admin/logout', { method: 'POST' });
+  me = null;
+  document.getElementById('login-pass').value = '';
+  closePasswordModal(true);
   showLoginScreen();
 });
 
@@ -71,7 +123,10 @@ document.querySelectorAll('.nav-btn[data-view]').forEach(btn => {
   btn.addEventListener('click', () => switchView(btn.dataset.view));
 });
 
-function switchView(view) {
+async function switchView(view) {
+  if (!isAdmin() && (view === 'users' || view === 'backups')) view = 'queue';
+  // Aanmelders: haal de actuele koppeling aan klinieken op (kan door een beheerder zijn aangepast).
+  if (!isAdmin()) await refreshMe();
   currentView = view;
   document.querySelectorAll('.nav-btn[data-view]').forEach(b => {
     b.classList.toggle('active', b.dataset.view === view);
@@ -83,14 +138,17 @@ function switchView(view) {
   else if (view === 'clinics') loadClinics();
   else if (view === 'week') loadWeek(currentWeekStart);
   else if (view === 'backups') loadBackups();
+  else if (view === 'users') loadUsers();
 }
 
 // ─── Queue ───────────────────────────────────────────────────────────────────
 async function loadQueue() {
   const el = document.getElementById('queue-content');
+  if (hasNoClinics()) { el.innerHTML = noClinicsHtml(); updateQueueBadge(0); return; }
   el.innerHTML = '<div style="color:var(--grey);padding:20px">Laden…</div>';
   try {
     const res = await fetch('/api/admin/queue');
+    if (!res.ok) return;
     const items = await res.json();
     renderQueue(items);
     updateQueueBadge(items.length);
@@ -112,10 +170,10 @@ function updateQueueBadge(count) {
 function renderQueue(items) {
   const el = document.getElementById('queue-content');
   if (!items.length) {
-    el.innerHTML = '<div class="empty-state">Geen aanmeldingen in de wachtrij.</div>';
+    el.innerHTML = scopeNoteHtml() + '<div class="empty-state">Geen aanmeldingen in de wachtrij.</div>';
     return;
   }
-  el.innerHTML = items.map(item => `
+  el.innerHTML = scopeNoteHtml() + items.map(item => `
     <div class="queue-card" id="qcard-${item.id}">
       <div class="queue-header">
         <div class="queue-info">
@@ -155,7 +213,8 @@ function renderQueue(items) {
 async function approveReg(id) {
   const btn = document.querySelector(`#qcard-${id} .btn-success`);
   if (btn) { btn.disabled = true; btn.textContent = '…'; }
-  await fetch(`/api/admin/registrations/${id}/approve`, { method: 'PATCH' });
+  const res = await fetch(`/api/admin/registrations/${id}/approve`, { method: 'PATCH' });
+  if (!res.ok) { alert((await res.json()).error || 'Goedkeuren mislukt.'); loadQueue(); return; }
   document.getElementById(`qcard-${id}`)?.remove();
   const remaining = document.querySelectorAll('[id^="qcard-"]').length;
   updateQueueBadge(remaining);
@@ -166,7 +225,8 @@ async function approveReg(id) {
 
 async function rejectReg(id) {
   if (!confirm('Aanmelding afwijzen? De datum wordt weer vrijgegeven.')) return;
-  await fetch(`/api/admin/registrations/${id}/reject`, { method: 'PATCH' });
+  const res = await fetch(`/api/admin/registrations/${id}/reject`, { method: 'PATCH' });
+  if (!res.ok) { alert((await res.json()).error || 'Afwijzen mislukt.'); loadQueue(); return; }
   document.getElementById(`qcard-${id}`)?.remove();
   const remaining = document.querySelectorAll('[id^="qcard-"]').length;
   updateQueueBadge(remaining);
@@ -178,9 +238,11 @@ async function rejectReg(id) {
 // ─── Clinics ─────────────────────────────────────────────────────────────────
 async function loadClinics() {
   const el = document.getElementById('clinics-content');
+  if (hasNoClinics()) { el.innerHTML = noClinicsHtml(); return; }
   el.innerHTML = '<div style="color:var(--grey);padding:20px">Laden…</div>';
   try {
     const res = await fetch('/api/admin/clinics');
+    if (!res.ok) return;
     const clinics = await res.json();
     renderClinics(clinics);
   } catch {
@@ -194,7 +256,7 @@ function renderClinics(clinics) {
     el.innerHTML = '<div class="empty-state">Nog geen klinieken aangemaakt.</div>';
     return;
   }
-  el.innerHTML = clinics.map(c => `
+  el.innerHTML = scopeNoteHtml() + clinics.map(c => `
     <div class="clinic-admin-card">
       <div class="clinic-admin-header">
         <div>
@@ -206,11 +268,14 @@ function renderClinics(clinics) {
             ${c.contact_name ? ' &bull; ' + esc(c.contact_name) : ''}
             ${!c.allow_public_signup ? ' &bull; <em style="color:var(--orange)">Geen publieke aanmeldingen</em>' : ''}
           </div>
+          ${isAdmin() ? `<div class="clinic-admin-meta" style="margin-top:4px">${c.manager_name
+            ? `Verantwoordelijke: <strong>${esc(c.manager_name)}</strong>`
+            : '<em style="color:var(--orange)">Nog geen verantwoordelijke</em>'}</div>` : ''}
         </div>
-        <div style="display:flex;gap:8px">
+        ${isAdmin() ? `<div style="display:flex;gap:8px">
           <button class="btn-secondary" style="font-size:.8rem;padding:6px 12px" onclick="openClinicModal(${c.id})">Bewerken</button>
           <button class="btn-icon danger" onclick="deleteClinic(${c.id}, '${esc(c.name).replace(/'/g,"\\'")}')">Verwijderen</button>
-        </div>
+        </div>` : ''}
       </div>
       <div class="clinic-admin-body">
         <div class="dates-admin-grid">
@@ -249,13 +314,15 @@ function renderDateAdminCell(d) {
 
 async function clearDate(dateId) {
   if (!confirm('Namen verwijderen en datum vrijgeven?')) return;
-  await fetch(`/api/admin/dates/${dateId}/clear`, { method: 'PATCH' });
+  const res = await fetch(`/api/admin/dates/${dateId}/clear`, { method: 'PATCH' });
+  if (!res.ok) alert((await res.json()).error || 'Vrijgeven mislukt.');
   loadClinics();
 }
 
 async function deleteDate(dateId) {
   if (!confirm('Datum permanent verwijderen?')) return;
-  await fetch(`/api/admin/dates/${dateId}`, { method: 'DELETE' });
+  const res = await fetch(`/api/admin/dates/${dateId}`, { method: 'DELETE' });
+  if (!res.ok) alert((await res.json()).error || 'Verwijderen mislukt.');
   loadClinics();
 }
 
@@ -268,15 +335,32 @@ async function deleteClinic(id, name) {
 // Clinic modal
 let editingClinicId = null;
 
+async function fillManagerSelect(selectedId) {
+  const sel = document.getElementById('c-manager');
+  sel.innerHTML = '<option value="">— Nog niemand —</option>';
+  try {
+    const users = await (await fetch('/api/admin/users')).json();
+    users.forEach(u => {
+      const o = document.createElement('option');
+      o.value = u.id;
+      o.textContent = u.username + (u.role === 'admin' ? ' (beheerder)' : '');
+      sel.appendChild(o);
+    });
+  } catch { /* lijst blijft leeg */ }
+  sel.value = selectedId ? String(selectedId) : '';
+}
+
 function openClinicModal(id) {
   editingClinicId = id || null;
   document.getElementById('clinic-modal-title').textContent = id ? 'Kliniek bewerken' : 'Nieuwe kliniek';
   document.getElementById('clinic-form-error').classList.add('hidden');
+  fillManagerSelect(null);
 
   if (id) {
     fetch('/api/admin/clinics').then(r => r.json()).then(clinics => {
       const c = clinics.find(x => x.id === id);
       if (!c) return;
+      fillManagerSelect(c.manager_id);
       document.getElementById('c-name').value = c.name;
       document.getElementById('c-address').value = c.address || '';
       document.getElementById('c-freq').value = c.frequency || '';
@@ -307,6 +391,7 @@ document.getElementById('clinic-form').addEventListener('submit', async e => {
     contact_name: document.getElementById('c-contact-name').value.trim(),
     contact_info: document.getElementById('c-contact-info').value.trim(),
     allow_public_signup: document.getElementById('c-public-signup').checked,
+    manager_id: document.getElementById('c-manager').value ? Number(document.getElementById('c-manager').value) : null,
   };
   const errEl = document.getElementById('clinic-form-error');
   errEl.classList.add('hidden');
@@ -560,11 +645,13 @@ document.getElementById('week-next').addEventListener('click', () => {
 
 async function loadWeek(startISO) {
   const el = document.getElementById('week-content');
+  if (hasNoClinics()) { el.innerHTML = noClinicsHtml(); document.getElementById('week-label').textContent = ''; return; }
   el.innerHTML = '<div style="color:var(--grey);padding:20px">Laden…</div>';
 
   const url = startISO ? `/api/admin/week?start=${startISO}` : '/api/admin/week';
   try {
     const res = await fetch(url);
+    if (!res.ok) return;
     const data = await res.json();
     currentWeekStart = data.start;
     renderWeek(data);
@@ -582,7 +669,7 @@ function renderWeek(data) {
     `${startD.toLocaleDateString('nl-NL', { day: 'numeric', month: 'long' })} – ${endD.toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' })}`;
 
   if (!data.dates.length) {
-    el.innerHTML = '<div class="empty-state">Geen datums in deze week.</div>';
+    el.innerHTML = scopeNoteHtml() + '<div class="empty-state">Geen datums in deze week.</div>';
     return;
   }
 
@@ -593,7 +680,7 @@ function renderWeek(data) {
     byDay[d.date].push(d);
   });
 
-  el.innerHTML = Object.entries(byDay).map(([date, entries]) => `
+  el.innerHTML = scopeNoteHtml() + Object.entries(byDay).map(([date, entries]) => `
     <div class="week-day-group">
       <div class="week-day-title">${fmtDateFull(date)}</div>
       ${entries.map(entry => renderWeekEntry(entry)).join('')}
@@ -783,6 +870,196 @@ function fmtSize(bytes) {
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
+
+// ─── Gebruikers (alleen beheerder) ──────────────────────────────────────────
+async function loadUsers() {
+  const el = document.getElementById('users-content');
+  el.innerHTML = '<div style="color:var(--grey);padding:20px">Laden…</div>';
+  try {
+    const res = await fetch('/api/admin/users');
+    if (!res.ok) return;
+    renderUsers(await res.json());
+  } catch {
+    el.innerHTML = '<div style="color:var(--red)">Fout bij laden van gebruikers.</div>';
+  }
+}
+
+function renderUsers(users) {
+  const el = document.getElementById('users-content');
+  el.innerHTML = users.map(u => `
+    <div class="user-card">
+      <div class="user-card-main">
+        <div class="user-card-name">
+          ${esc(u.username)}
+          <span class="role-badge ${u.role === 'admin' ? 'role-admin' : 'role-manager'}">${u.role === 'admin' ? 'Beheerder' : 'Aanmelder'}</span>
+          ${u.must_change_password ? '<span class="role-badge role-pending">Moet wachtwoord nog wijzigen</span>' : ''}
+          ${u.username.toLowerCase() === (me.username || '').toLowerCase() ? '<span class="role-badge role-you">Jij</span>' : ''}
+        </div>
+        <div class="user-card-clinics">
+          ${u.clinics.length
+            ? 'Verantwoordelijk voor: <strong>' + u.clinics.map(c => esc(c.name)).join(', ') + '</strong>'
+            : (u.role === 'admin' ? 'Ziet alle klinieken' : '<em>Nog niet gekoppeld aan een kliniek</em>')}
+        </div>
+      </div>
+      <div class="user-card-actions">
+        ${u.username.toLowerCase() === (me.username || '').toLowerCase()
+          ? `<button class="btn-secondary" style="font-size:.8rem;padding:6px 12px" onclick="openPasswordModal(false)">Mijn wachtwoord wijzigen</button>`
+          : `<button class="btn-secondary" style="font-size:.8rem;padding:6px 12px" onclick="openResetModal(${u.id}, '${esc(u.username)}')">Nieuw wachtwoord</button>
+             <button class="btn-icon danger" onclick="deleteUser(${u.id}, '${esc(u.username)}')">Verwijderen</button>`}
+      </div>
+    </div>
+  `).join('') || '<div class="empty-state">Nog geen gebruikers.</div>';
+}
+
+async function deleteUser(id, name) {
+  if (!confirm(`Gebruiker "${name}" verwijderen? De klinieken waarvoor deze persoon verantwoordelijk is hebben daarna geen verantwoordelijke meer.`)) return;
+  const res = await fetch(`/api/admin/users/${id}`, { method: 'DELETE' });
+  if (!res.ok) alert((await res.json()).error || 'Verwijderen mislukt.');
+  loadUsers();
+}
+
+// Leesbaar wachtwoord zonder verwarrende tekens (geen 0/O, 1/l/I).
+function randomPassword() {
+  const letters = 'abcdefghjkmnpqrstuvwxyz', all = letters + 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const bytes = crypto.getRandomValues(new Uint32Array(12));
+  return Array.from(bytes, b => all[b % all.length]).join('');
+}
+function fillRandomPassword(inputId) { document.getElementById(inputId).value = randomPassword(); }
+
+function showResult(boxId, html) {
+  const box = document.getElementById(boxId);
+  box.innerHTML = html;
+  box.classList.remove('hidden');
+}
+
+function copyText(btn, text) {
+  navigator.clipboard.writeText(text).then(() => {
+    const orig = btn.textContent;
+    btn.textContent = '✓ Gekopieerd';
+    setTimeout(() => { btn.textContent = orig; }, 2000);
+  });
+}
+
+// Nieuwe gebruiker
+function openUserModal() {
+  document.getElementById('user-form').reset();
+  document.getElementById('user-form').classList.remove('hidden');
+  document.getElementById('user-result').classList.add('hidden');
+  document.getElementById('user-form-error').classList.add('hidden');
+  fillRandomPassword('u-pass');
+  document.getElementById('user-modal-overlay').classList.remove('hidden');
+}
+function closeUserModal() {
+  document.getElementById('user-modal-overlay').classList.add('hidden');
+  if (currentView === 'users') loadUsers();
+}
+document.getElementById('user-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const errEl = document.getElementById('user-form-error');
+  errEl.classList.add('hidden');
+  const username = document.getElementById('u-name').value.trim();
+  const password = document.getElementById('u-pass').value;
+  const role = document.getElementById('u-role').value;
+  const res = await fetch('/api/admin/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password, role }),
+  });
+  const data = await res.json();
+  if (!res.ok) { errEl.textContent = data.error; errEl.classList.remove('hidden'); return; }
+  document.getElementById('user-form').classList.add('hidden');
+  const text = `Gebruikersnaam: ${username}\nTijdelijk wachtwoord: ${password}\nInloggen: ${location.origin}/admin`;
+  showResult('user-result', `
+    <strong>Gebruiker aangemaakt.</strong>
+    <p>Geef deze gegevens door aan ${esc(username)}. Het wachtwoord wordt hierna niet meer getoond.</p>
+    <pre class="result-pre">${esc(text)}</pre>
+    <div class="form-actions"><button class="btn-secondary" id="user-copy-btn">Kopiëren</button><button class="btn-primary" onclick="closeUserModal()">Klaar</button></div>`);
+  document.getElementById('user-copy-btn').addEventListener('click', ev => copyText(ev.target, text));
+  loadUsers();
+});
+
+// Wachtwoord van een ander resetten
+function openResetModal(id, name) {
+  document.getElementById('reset-user-id').value = id;
+  document.getElementById('reset-modal-user').textContent = `Voor: ${name}`;
+  document.getElementById('reset-form').classList.remove('hidden');
+  document.getElementById('reset-result').classList.add('hidden');
+  document.getElementById('reset-form-error').classList.add('hidden');
+  fillRandomPassword('reset-pass');
+  document.getElementById('reset-modal-overlay').classList.remove('hidden');
+}
+function closeResetModal() {
+  document.getElementById('reset-modal-overlay').classList.add('hidden');
+  if (currentView === 'users') loadUsers();
+}
+document.getElementById('reset-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const errEl = document.getElementById('reset-form-error');
+  errEl.classList.add('hidden');
+  const id = document.getElementById('reset-user-id').value;
+  const password = document.getElementById('reset-pass').value;
+  const res = await fetch(`/api/admin/users/${id}/reset-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  });
+  const data = await res.json();
+  if (!res.ok) { errEl.textContent = data.error; errEl.classList.remove('hidden'); return; }
+  document.getElementById('reset-form').classList.add('hidden');
+  showResult('reset-result', `
+    <strong>Wachtwoord ingesteld.</strong>
+    <p>Geef dit tijdelijke wachtwoord door. Het wordt hierna niet meer getoond.</p>
+    <pre class="result-pre">${esc(password)}</pre>
+    <div class="form-actions"><button class="btn-secondary" id="reset-copy-btn">Kopiëren</button><button class="btn-primary" onclick="closeResetModal()">Klaar</button></div>`);
+  document.getElementById('reset-copy-btn').addEventListener('click', ev => copyText(ev.target, password));
+});
+
+// Eigen wachtwoord wijzigen
+let pwForced = false;
+function openPasswordModal(forced) {
+  pwForced = !!forced;
+  document.getElementById('pw-form').reset();
+  document.getElementById('pw-form-error').classList.add('hidden');
+  document.getElementById('pw-forced-note').classList.toggle('hidden', !pwForced);
+  document.getElementById('pw-close').classList.toggle('hidden', pwForced);
+  document.getElementById('pw-cancel').classList.toggle('hidden', pwForced);
+  document.getElementById('pw-modal-overlay').classList.remove('hidden');
+  setTimeout(() => document.getElementById('pw-current').focus(), 50);
+}
+function closePasswordModal(force) {
+  if (pwForced && !force) return; // verplichte wijziging kan niet worden gesloten
+  pwForced = false;
+  document.getElementById('pw-modal-overlay').classList.add('hidden');
+}
+function showForcedPasswordChange() {
+  document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
+  document.querySelectorAll('.nav-btn[data-view]').forEach(b => b.classList.remove('active'));
+  if (!pwForced) openPasswordModal(true);
+}
+document.getElementById('change-pw-btn').addEventListener('click', () => openPasswordModal(false));
+document.getElementById('pw-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const errEl = document.getElementById('pw-form-error');
+  errEl.classList.add('hidden');
+  const current_password = document.getElementById('pw-current').value;
+  const new_password = document.getElementById('pw-new').value;
+  if (new_password !== document.getElementById('pw-new2').value) {
+    errEl.textContent = 'De twee nieuwe wachtwoorden zijn niet gelijk.';
+    errEl.classList.remove('hidden'); return;
+  }
+  const res = await fetch('/api/admin/change-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ current_password, new_password }),
+  });
+  const data = await res.json();
+  if (!res.ok) { errEl.textContent = data.error; errEl.classList.remove('hidden'); return; }
+  const wasForced = pwForced;
+  closePasswordModal(true);
+  await refreshMe();
+  if (wasForced || me.must_change_password) { me.must_change_password = false; switchView('queue'); }
+  else alert('Je wachtwoord is gewijzigd.');
+});
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function fmtDate(iso) {
