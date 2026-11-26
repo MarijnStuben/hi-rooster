@@ -27,6 +27,30 @@ const normText = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/
   .toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
 const normBirth = b => (/^\d{4}-\d{2}-\d{2}$/.test(String(b || '')) ? b : '');
 
+// Telefoonnummer vergelijkbaar maken: alleen cijfers, +31 / 0031 wordt 0.
+function normPhone(p) {
+  let d = String(p || '').replace(/\D/g, '');
+  if (d.startsWith('0031')) d = '0' + d.slice(4);
+  else if (d.startsWith('31') && d.length >= 11) d = '0' + d.slice(2);
+  return d.length >= 8 ? d : '';
+}
+
+// Aantal tikfouten tussen twee teksten (Levenshtein).
+function editDistance(a, b) {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
 function initDb() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
@@ -73,10 +97,13 @@ function initDb() {
       key TEXT PRIMARY KEY,
       name_key TEXT NOT NULL,
       birth_date TEXT DEFAULT '',
+      phone_key TEXT DEFAULT '',
       educator_id INTEGER NOT NULL,
       FOREIGN KEY (educator_id) REFERENCES educators(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_educator_keys_name ON educator_keys(name_key);
+    CREATE INDEX IF NOT EXISTS idx_educator_keys_birth ON educator_keys(birth_date);
+    CREATE INDEX IF NOT EXISTS idx_educator_keys_phone ON educator_keys(phone_key);
     CREATE TABLE IF NOT EXISTS educator_sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       educator_id INTEGER NOT NULL,
@@ -173,25 +200,49 @@ function initDb() {
 
 // ── Voorlichtersprofielen ─────────────────────────────────────────────────
 const educatorHelpers = {
-  // Zoek het profiel bij een persoon, of maak er een. Matcht op naam + geboortedatum;
-  // ontbreekt de geboortedatum, dan op naam als die maar bij één profiel hoort.
-  findOrCreate(p) {
+  // Zoek het profiel bij een persoon, of maak er een.
+  // Herkenning gaat vooral op geboortedatum + telefoonnummer; de naam mag afwijken (tikfouten).
+  // Met maar één van die twee gegevens moet de naam er ook (bijna) op lijken.
+  // opts.overwriteName: een beheerder corrigeert bewust de naam, dus ook in het profiel aanpassen.
+  findOrCreate(p, opts = {}) {
     const first = String(p.first_name || '').trim();
     const last = String(p.last_name || '').trim();
     if (!first && !last) return null;
     const birth = normBirth(p.birth_date);
     const phone = String(p.phone || p.mobile || '').trim();
+    const phoneKey = normPhone(phone);
     const nameKey = normText(first) + '|' + normText(last);
-    const key = nameKey + '|' + birth;
+    const full = nameKey.replace('|', ' ').trim();
+    const tol = full.length >= 10 ? 2 : (full.length >= 5 ? 1 : 0);
 
-    let row = db.prepare('SELECT educator_id AS id FROM educator_keys WHERE key = ?').get(key);
-    let id = row ? row.id : null;
+    const score = c => {
+      const cFull = c.name_key.replace('|', ' ').trim();
+      const d = editDistance(full, cFull);
+      const close = d <= tol, exact = d === 0;
+      const bothBirth = c.birth_date && birth, bothPhone = c.phone_key && phoneKey;
+      const bMatch = bothBirth && c.birth_date === birth, bConflict = bothBirth && c.birth_date !== birth;
+      const pMatch = bothPhone && c.phone_key === phoneKey, pConflict = bothPhone && c.phone_key !== phoneKey;
+      if (bConflict) return 0;
+      if (bMatch && pMatch) return 100 - d;                       // zelfde geboortedatum en nummer: naam maakt niet uit
+      if (bMatch && !pConflict && close) return 80 - d;           // nummer ontbreekt aan één kant
+      if (bMatch && pConflict && exact) return 60;                // ander nummer, zelfde naam
+      if (!bothBirth && pMatch && close) return 70 - d;           // geboortedatum ontbreekt, nummer gelijk
+      if (!bothBirth && !pConflict && exact) return 40;           // alleen de naam bekend
+      return 0;
+    };
+
+    const exactRow = db.prepare('SELECT educator_id AS id FROM educator_keys WHERE key = ?').get(nameKey + '|' + birth + '|' + phoneKey);
+    let id = exactRow ? exactRow.id : null;
     if (!id) {
-      const cands = birth
-        ? db.prepare(`SELECT DISTINCT k.educator_id AS id FROM educator_keys k JOIN educators e ON e.id = k.educator_id
-                      WHERE k.name_key = ? AND k.birth_date = '' AND e.birth_date = ''`).all(nameKey)
-        : db.prepare('SELECT DISTINCT educator_id AS id FROM educator_keys WHERE name_key = ?').all(nameKey);
-      if (cands.length === 1) id = cands[0].id;
+      const cands = db.prepare(`SELECT * FROM educator_keys
+        WHERE (birth_date <> '' AND birth_date = ?) OR (phone_key <> '' AND phone_key = ?) OR name_key = ?`)
+        .all(birth, phoneKey, nameKey);
+      let best = 0;
+      cands.forEach(c => {
+        const sc = score(c);
+        if (sc > best || (sc === best && sc > 0 && c.educator_id < id)) { best = sc; id = c.educator_id; }
+      });
+      if (best === 0) id = null;
     }
     if (!id) {
       id = db.prepare('INSERT INTO educators (first_name, last_name, birth_date, phone) VALUES (?,?,?,?)')
@@ -204,9 +255,10 @@ const educatorHelpers = {
         birth_date = CASE WHEN birth_date = '' THEN ? ELSE birth_date END,
         phone      = CASE WHEN phone      = '' THEN ? ELSE phone      END
         WHERE id = ?`).run(first, last, birth, phone, id);
+      if (opts.overwriteName) db.prepare('UPDATE educators SET first_name = ?, last_name = ? WHERE id = ?').run(first, last, id);
     }
-    db.prepare('INSERT OR IGNORE INTO educator_keys (key, name_key, birth_date, educator_id) VALUES (?,?,?,?)')
-      .run(key, nameKey, birth, id);
+    db.prepare('INSERT OR IGNORE INTO educator_keys (key, name_key, birth_date, phone_key, educator_id) VALUES (?,?,?,?,?)')
+      .run(nameKey + '|' + birth + '|' + phoneKey, nameKey, birth, phoneKey, id);
     return id;
   },
 
@@ -634,7 +686,7 @@ const queries = {
         'INSERT INTO persons (registration_id, person_number, first_name, last_name, birth_date, phone, mobile, educator_id) VALUES (?,?,?,?,?,?,?,?)'
       );
       persons.forEach(p => {
-        insertPerson.run(id, p.number, p.first_name, p.last_name, p.birth_date || '', p.phone || '', p.mobile || '', educatorHelpers.findOrCreate(p));
+        insertPerson.run(id, p.number, p.first_name, p.last_name, p.birth_date || '', p.phone || '', p.mobile || '', educatorHelpers.findOrCreate(p, { overwriteName: true }));
       });
       educatorHelpers.gc();
     })();
@@ -678,9 +730,9 @@ const queries = {
         .run(d.first_name, d.last_name, normBirth(d.birth_date), d.phone, d.prior_kliniek, d.prior_pi, id);
       // Zorg dat de nieuwe schrijfwijze ook herkend wordt; de oude blijft herkend.
       const nameKey = normText(d.first_name) + '|' + normText(d.last_name);
-      const birth = normBirth(d.birth_date);
-      db.prepare('INSERT OR IGNORE INTO educator_keys (key, name_key, birth_date, educator_id) VALUES (?,?,?,?)')
-        .run(nameKey + '|' + birth, nameKey, birth, id);
+      const birth = normBirth(d.birth_date), phoneKey = normPhone(d.phone);
+      db.prepare('INSERT OR IGNORE INTO educator_keys (key, name_key, birth_date, phone_key, educator_id) VALUES (?,?,?,?,?)')
+        .run(nameKey + '|' + birth + '|' + phoneKey, nameKey, birth, phoneKey, id);
     })();
   },
 
