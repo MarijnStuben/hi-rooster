@@ -7,10 +7,16 @@ name: Voorlichters importeren
 on:
   push:
     branches: ['claude/**']
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Echt uitvoeren (anders proefrun)'
+        type: boolean
+        default: false
 
 jobs:
   importeren:
-    if: contains(github.event.head_commit.message, '[import-dry]') || contains(github.event.head_commit.message, '[import-apply]')
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[import-dry]') || contains(github.event.head_commit.message, '[import-apply]')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -29,6 +35,6 @@ jobs:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-          APPLY: ${{ contains(github.event.head_commit.message, '[import-apply]') && '--apply' || '' }}
+          APPLY: ${{ (contains(github.event.head_commit.message, '[import-apply]') || (github.event_name == 'workflow_dispatch' && inputs.apply)) && '--apply' || '' }}
         run: |
           ssh -i ~/.ssh/deploy_key "$DEPLOY_USER@$DEPLOY_HOST" "cd $(printf %q "$DEPLOY_PATH") && node tools/import-voorlichters.js $APPLY"
