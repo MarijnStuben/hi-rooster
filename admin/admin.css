@@ -670,6 +670,42 @@ body {
 .modal-overlay { align-items: flex-start; }
 .modal { margin: auto 0; }
 
+/* ── Voorlichters ───────────────────────────────────────────────────── */
+.view-count { color: var(--grey); font-size: .85rem; }
+.filter-bar { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+.filter-bar input, .filter-bar select {
+  padding: 9px 12px; border: 1px solid var(--border); border-radius: 6px;
+  font-size: .9rem; background: #fff; color: var(--text); min-width: 0;
+}
+.filter-bar input { flex: 1 1 240px; }
+.filter-bar select { flex: 0 1 280px; }
+.filter-bar input:focus, .filter-bar select:focus { outline: none; border-color: var(--blue); }
+
+.educator-card { background: #fff; border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px 18px; margin-bottom: 12px; }
+.educator-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.educator-name { font-weight: 700; font-size: 1.02rem; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.educator-details { display: flex; flex-wrap: wrap; gap: 2px 18px; font-size: .85rem; color: var(--grey); margin-top: 4px; }
+.educator-details strong { color: var(--text); font-weight: 600; }
+.educator-where { margin-top: 8px; font-size: .85rem; color: var(--grey); display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
+.educator-where .hint { flex-basis: 100%; }
+.educator-foot { margin-top: 8px; font-size: .78rem; color: var(--grey); }
+.place-chip { background: var(--blue-light); color: var(--blue-dark); border-radius: 12px; padding: 2px 9px; font-size: .78rem; white-space: nowrap; }
+.place-chip.place-pi { background: #efe7f7; color: #5b2d82; }
+.role-pi { background: #efe7f7; color: #5b2d82; margin-left: 4px; vertical-align: middle; }
+
+.exp-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 6px; font-size: .82rem; }
+.exp-badge { font-weight: 600; font-size: .75rem; padding: 2px 9px; border-radius: 10px; white-space: nowrap; }
+.exp-yes { background: var(--green-bg); color: var(--green); }
+.exp-new { background: var(--orange-bg); color: var(--orange); }
+.exp-count { color: var(--grey); white-space: nowrap; }
+.exp-count strong { color: var(--text); }
+
+.prior-box { border: 1px solid var(--border); border-radius: 6px; padding: 12px 14px; margin-top: 14px; }
+.prior-box legend { font-weight: 600; font-size: .85rem; padding: 0 6px; color: var(--blue); }
+.educator-tools { border-top: 1px solid var(--border); margin-top: 18px; padding-top: 14px; }
+.educator-tools h3 { font-size: .95rem; margin-bottom: 6px; }
+.educator-tools select { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 5px; font-size: .9rem; background: #fff; }
+
 /* Kleine schermen: menubalk groeit mee (tabbladen mogen doorlopen op een tweede regel)
    en schuift mee bovenaan het scherm. */
 @media (max-width: 900px) {
@@ -724,6 +760,10 @@ body {
   .modal fieldset { padding: 12px !important; }
   .form-actions { flex-wrap: wrap; }
   .form-actions button { flex: 1 1 auto; }
+
+  /* Voorlichters */
+  .educator-card { padding: 12px; }
+  .filter-bar select { flex: 1 1 100%; }
 
   /* Gebruikers */
   .user-card { padding: 12px; }

@@ -1,0 +1,34 @@
+name: Voorlichters importeren
+
+# Bouwt voorlichtersprofielen en hun geschiedenis op uit de back-ups op de droplet.
+# Draait alleen bij een push naar een claude/-branch met in het commitbericht:
+#   [import-dry]     -> proefrun: toont wat er zou gebeuren, wijzigt niets
+#   [import-apply]   -> voert de import uit (maakt eerst een back-up van de database)
+on:
+  push:
+    branches: ['claude/**']
+
+jobs:
+  importeren:
+    if: contains(github.event.head_commit.message, '[import-dry]') || contains(github.event.head_commit.message, '[import-apply]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: SSH instellen
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$DEPLOY_HOST" > ~/.ssh/known_hosts 2>/dev/null
+      - name: Importeren op droplet
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          APPLY: ${{ contains(github.event.head_commit.message, '[import-apply]') && '--apply' || '' }}
+        run: |
+          ssh -i ~/.ssh/deploy_key "$DEPLOY_USER@$DEPLOY_HOST" "cd $(printf %q "$DEPLOY_PATH") && node tools/import-voorlichters.js $APPLY"
