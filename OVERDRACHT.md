@@ -58,7 +58,25 @@ Live code terughalen naar GitHub (als er ooit direct op de server is gewerkt): p
 - **Klinieken:** klinieken en datums beheren. "Automatisch aanvullen" herkent het patroon uit de frequentieomschrijving van de kliniek en controleert dat tegen de historie. Er is altijd een voorbeeld (Voorbeeld) voordat er iets wordt opgeslagen.
 - **Gepasseerde datums verwijderen:** verwijdert datums vóór vandaag, met automatische backup vooraf.
 - **Weekoverzicht:** berichten voor vrijwilligers en de kliniek, en het vinkje "aangemeld bij kliniek".
-- **Backups:** overzicht, downloaden en handmatig een backup maken.
+- **Backups:** overzicht, downloaden en handmatig een backup maken (alleen beheerders).
+- **Gebruikers:** aanmelders en beheerders aanmaken, wachtwoord resetten, verwijderen (alleen beheerders).
+
+## Gebruikers en rechten
+
+Er zijn twee rollen (`users.role`):
+
+- **admin** (beheerder met volledige rechten, bijvoorbeeld `bob`): ziet en doet alles, inclusief klinieken aanmaken/bewerken/verwijderen, gebruikers beheren, back-ups en "gepasseerde datums verwijderen".
+- **manager** (aanmelder): ziet in wachtrij, weekoverzicht en klinieken alleen de klinieken waarvoor die persoon verantwoordelijk is (`clinics.manager_id`). Mag voor die klinieken aanmeldingen goedkeuren, afwijzen en bewerken, het vinkje "aangemeld bij kliniek" zetten, en datums toevoegen, vrijgeven, verwijderen en automatisch aanvullen.
+
+Regels:
+
+- Elke kliniek heeft hooguit één verantwoordelijke; één gebruiker kan meerdere klinieken hebben. Een kliniek zonder verantwoordelijke is alleen zichtbaar voor beheerders.
+- Beheerders maken gebruikers aan in het tabblad **Gebruikers** (tijdelijk wachtwoord, minimaal 8 tekens). De nieuwe gebruiker moet het bij de eerste keer inloggen wijzigen (`users.must_change_password`). Een reset door een beheerder werkt hetzelfde en logt de gebruiker meteen uit.
+- De verantwoordelijke koppel je in **Klinieken → Bewerken**.
+- Rechten worden **op de server** afgedwongen (`requireAuth`, `adminOnly`, `guardDate`, `guardRegistration` in `server.js`), niet alleen in het scherm.
+- Bestaande gebruikers werden bij de migratie `admin`, zodat niemand toegang verloor. Inloggen is niet hoofdlettergevoelig.
+- Gebruikers kunnen zichzelf of de laatste beheerder niet verwijderen.
+- De API-sleutel (`ADMIN_API_TOKEN`) heeft altijd beheerdersrechten.
 
 ## Domeinregels
 

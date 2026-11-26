@@ -78,11 +78,72 @@ function hasValidApiToken(req) {
   return crypto.timingSafeEqual(a, b);
 }
 
-function requireAuth(req, res, next) {
-  if (req.session && req.session.userId) return next();
-  if (hasValidApiToken(req)) return next();
-  res.status(401).json({ error: 'Niet ingelogd' });
+// Een sessie is alleen geldig zolang de gebruiker bestaat en het wachtwoord niet is
+// gewijzigd of gereset sinds het inloggen.
+function pwStamp(user) {
+  return crypto.createHash('sha256').update(user.password_hash).digest('hex').slice(0, 16);
 }
+
+function authenticate(req) {
+  if (req.session && req.session.userId) {
+    const user = queries.getUserById(req.session.userId);
+    if (user && req.session.pwv === pwStamp(user)) return user;
+  }
+  if (hasValidApiToken(req)) {
+    return { id: null, username: 'api', role: 'admin', must_change_password: 0, viaToken: true };
+  }
+  return null;
+}
+
+// Ingelogd, ook als het wachtwoord nog gewijzigd moet worden.
+function requireLogin(req, res, next) {
+  const user = authenticate(req);
+  if (!user) return res.status(401).json({ error: 'Niet ingelogd' });
+  req.user = user;
+  next();
+}
+
+// Ingelogd en het wachtwoord is al gewijzigd.
+function requireAuth(req, res, next) {
+  requireLogin(req, res, () => {
+    if (req.user.must_change_password) {
+      return res.status(403).json({ error: 'Je moet eerst je wachtwoord wijzigen.', must_change_password: true });
+    }
+    next();
+  });
+}
+
+// Alleen beheerders met volledige rechten (Bob).
+function adminOnly(req, res, next) {
+  if (req.user.role === 'admin') return next();
+  res.status(403).json({ error: 'Dit mag alleen een beheerder met volledige rechten.' });
+}
+
+// Klinieken waar deze gebruiker bij mag: null = alle klinieken.
+function scopeIds(user) {
+  if (user.role === 'admin') return null;
+  return queries.getManagedClinics(user.id).map(c => c.id);
+}
+
+function canAccessClinic(user, clinicId) {
+  if (user.role === 'admin') return true;
+  return queries.getManagedClinics(user.id).some(c => c.id === clinicId);
+}
+
+// Controleert of de gebruiker bij de kliniek van een datum of aanmelding mag.
+function guardClinic(lookup) {
+  return (req, res, next) => {
+    const clinicId = lookup(Number(req.params.id));
+    if (clinicId === null || clinicId === undefined) return res.status(404).json({ error: 'Niet gevonden.' });
+    if (!canAccessClinic(req.user, clinicId)) {
+      return res.status(403).json({ error: 'Dit is niet een van jouw klinieken.' });
+    }
+    next();
+  };
+}
+const guardDate = guardClinic(id => queries.getClinicIdForDate(id));
+const guardRegistration = guardClinic(id => queries.getClinicIdForRegistration(id));
+const guardClinicParam = guardClinic(id => (queries.getClinicById(id) ? id : null));
 
 // ─── Auth ──────────────────────────────────────────────────────────────────
 
@@ -103,8 +164,10 @@ app.post('/api/admin/login', (req, res) => {
   }
 
   const { username, password } = req.body;
-  if (!username || !password) return res.status(400).json({ error: 'Vul gebruikersnaam en wachtwoord in.' });
-  const user = queries.getUserByUsername(username);
+  if (typeof username !== 'string' || typeof password !== 'string' || !username || !password) {
+    return res.status(400).json({ error: 'Vul gebruikersnaam en wachtwoord in.' });
+  }
+  const user = queries.getUserByUsername(username.trim());
   if (!user || !bcrypt.compareSync(password, user.password_hash)) {
     if (fails) fails.count++; else loginFails.set(ip, { count: 1, first: now });
     return res.status(401).json({ error: 'Onjuiste gebruikersnaam of wachtwoord.' });
@@ -112,7 +175,8 @@ app.post('/api/admin/login', (req, res) => {
   loginFails.delete(ip);
   req.session.userId = user.id;
   req.session.username = user.username;
-  res.json({ ok: true, username: user.username });
+  req.session.pwv = pwStamp(user);
+  res.json({ ok: true, username: user.username, role: user.role, must_change_password: !!user.must_change_password });
 });
 
 app.post('/api/admin/logout', (req, res) => {
@@ -120,8 +184,44 @@ app.post('/api/admin/logout', (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/api/admin/me', requireAuth, (req, res) => {
-  res.json({ username: req.session.username });
+app.get('/api/admin/me', requireLogin, (req, res) => {
+  const u = req.user;
+  res.json({
+    username: u.username,
+    role: u.role,
+    must_change_password: !!u.must_change_password,
+    clinics: u.id ? queries.getManagedClinics(u.id) : [],
+  });
+});
+
+const MIN_PASSWORD = 8;
+function passwordProblem(password, username) {
+  if (typeof password !== 'string' || password.length < MIN_PASSWORD) return `Het wachtwoord moet minimaal ${MIN_PASSWORD} tekens hebben.`;
+  if (Buffer.byteLength(password) > 72) return 'Het wachtwoord mag maximaal 72 tekens zijn.';
+  if (username && password.toLowerCase() === String(username).toLowerCase()) return 'Het wachtwoord mag niet gelijk zijn aan de gebruikersnaam.';
+  return null;
+}
+
+// Eigen wachtwoord wijzigen (ook verplicht bij de eerste keer inloggen).
+app.post('/api/admin/change-password', requireLogin, (req, res) => {
+  if (!req.user.id) return res.status(400).json({ error: 'Niet beschikbaar voor de API-sleutel.' });
+  const ip = req.ip;
+  const fails = loginFails.get(ip);
+  if (fails && fails.count >= LOGIN_MAX_FAILS) {
+    return res.status(429).json({ error: 'Te veel mislukte pogingen. Probeer het over 15 minuten opnieuw.' });
+  }
+  const { current_password, new_password } = req.body;
+  if (typeof current_password !== 'string' || !bcrypt.compareSync(current_password, req.user.password_hash)) {
+    if (fails) fails.count++; else loginFails.set(ip, { count: 1, first: Date.now() });
+    return res.status(401).json({ error: 'Je huidige wachtwoord klopt niet.' });
+  }
+  const problem = passwordProblem(new_password, req.user.username);
+  if (problem) return res.status(400).json({ error: problem });
+  if (new_password === current_password) return res.status(400).json({ error: 'Kies een ander wachtwoord dan je huidige.' });
+  const hash = bcrypt.hashSync(new_password, 10);
+  queries.setPassword(req.user.id, hash, false);
+  req.session.pwv = pwStamp({ password_hash: hash });
+  res.json({ ok: true });
 });
 
 // ─── Public API ────────────────────────────────────────────────────────────
@@ -130,6 +230,7 @@ app.get('/api/clinics', (req, res) => {
   try {
     const clinics = queries.getClinics();
     clinics.forEach(c => {
+      delete c.manager_id;
       c.dates.forEach(d => {
         // Approved: toon voornamen; pending: verberg namen
         if (d.status === 'pending') {
@@ -179,33 +280,33 @@ app.post('/api/registrations', (req, res) => {
 // ─── Admin API ─────────────────────────────────────────────────────────────
 
 app.get('/api/admin/queue', requireAuth, (req, res) => {
-  res.json(queries.getQueue());
+  res.json(queries.getQueue(scopeIds(req.user)));
 });
 
-app.patch('/api/admin/registrations/:id/approve', requireAuth, (req, res) => {
+app.patch('/api/admin/registrations/:id/approve', requireAuth, guardRegistration, (req, res) => {
   queries.approveRegistration(Number(req.params.id));
   res.json({ ok: true });
 });
 
-app.patch('/api/admin/registrations/:id/reject', requireAuth, (req, res) => {
+app.patch('/api/admin/registrations/:id/reject', requireAuth, guardRegistration, (req, res) => {
   queries.rejectRegistration(Number(req.params.id));
   res.json({ ok: true });
 });
 
-app.get('/api/admin/registrations/:id', requireAuth, (req, res) => {
+app.get('/api/admin/registrations/:id', requireAuth, guardRegistration, (req, res) => {
   const reg = queries.getRegistrationById(Number(req.params.id));
   if (!reg) return res.status(404).json({ error: 'Niet gevonden' });
   res.json(reg);
 });
 
-app.put('/api/admin/registrations/:id', requireAuth, (req, res) => {
+app.put('/api/admin/registrations/:id', requireAuth, guardRegistration, (req, res) => {
   const { persons } = req.body;
   if (!persons || !persons.length) return res.status(400).json({ error: 'Geen personen opgegeven.' });
   queries.updateRegistration(Number(req.params.id), persons);
   res.json({ ok: true });
 });
 
-app.post('/api/admin/dates/:id/register', requireAuth, (req, res) => {
+app.post('/api/admin/dates/:id/register', requireAuth, guardDate, (req, res) => {
   const { persons } = req.body;
   if (!persons || persons.length < 2) return res.status(400).json({ error: 'Minimaal 2 personen vereist.' });
   const date = queries.getDateById(Number(req.params.id));
@@ -215,24 +316,37 @@ app.post('/api/admin/dates/:id/register', requireAuth, (req, res) => {
 });
 
 app.get('/api/admin/clinics', requireAuth, (req, res) => {
-  res.json(queries.getAllClinics());
+  res.json(queries.getAllClinics(scopeIds(req.user)));
 });
 
-app.post('/api/admin/clinics', requireAuth, (req, res) => {
+// Controleert dat manager_id (indien meegestuurd) een bestaande gebruiker is.
+function managerProblem(body) {
+  if (body.manager_id === undefined || body.manager_id === null || body.manager_id === '') return null;
+  const id = Number(body.manager_id);
+  if (!Number.isInteger(id) || !queries.getUserById(id)) return 'De gekozen verantwoordelijke bestaat niet.';
+  body.manager_id = id;
+  return null;
+}
+
+app.post('/api/admin/clinics', requireAuth, adminOnly, (req, res) => {
   const { name } = req.body;
   if (!name) return res.status(400).json({ error: 'Naam is verplicht.' });
+  const problem = managerProblem(req.body);
+  if (problem) return res.status(400).json({ error: problem });
   const result = queries.createClinic(req.body);
   res.json({ ok: true, id: result.lastInsertRowid });
 });
 
-app.put('/api/admin/clinics/:id', requireAuth, (req, res) => {
+app.put('/api/admin/clinics/:id', requireAuth, adminOnly, (req, res) => {
   const { name } = req.body;
   if (!name) return res.status(400).json({ error: 'Naam is verplicht.' });
+  const problem = managerProblem(req.body);
+  if (problem) return res.status(400).json({ error: problem });
   queries.updateClinic(Number(req.params.id), req.body);
   res.json({ ok: true });
 });
 
-app.delete('/api/admin/clinics/:id', requireAuth, (req, res) => {
+app.delete('/api/admin/clinics/:id', requireAuth, adminOnly, (req, res) => {
   queries.deleteClinic(Number(req.params.id));
   res.json({ ok: true });
 });
@@ -240,17 +354,20 @@ app.delete('/api/admin/clinics/:id', requireAuth, (req, res) => {
 app.post('/api/admin/dates', requireAuth, (req, res) => {
   const { clinic_id, date } = req.body;
   if (!clinic_id || !date) return res.status(400).json({ error: 'Kliniek en datum zijn verplicht.' });
+  if (!canAccessClinic(req.user, Number(clinic_id))) {
+    return res.status(403).json({ error: 'Dit is niet een van jouw klinieken.' });
+  }
   const result = queries.addDate(Number(clinic_id), date);
   if (!result) return res.status(409).json({ error: 'Datum bestaat al voor deze kliniek.' });
   res.json({ ok: true, id: result.lastInsertRowid });
 });
 
-app.patch('/api/admin/dates/:id/clear', requireAuth, (req, res) => {
+app.patch('/api/admin/dates/:id/clear', requireAuth, guardDate, (req, res) => {
   queries.clearDate(Number(req.params.id));
   res.json({ ok: true });
 });
 
-app.post('/api/admin/clinics/:id/generate-dates', requireAuth, (req, res) => {
+app.post('/api/admin/clinics/:id/generate-dates', requireAuth, guardClinicParam, (req, res) => {
   const clinicId = Number(req.params.id);
   const clinic = queries.getClinicById(clinicId);
   if (!clinic) return res.status(404).json({ error: 'Kliniek niet gevonden.' });
@@ -294,7 +411,7 @@ app.post('/api/admin/clinics/:id/generate-dates', requireAuth, (req, res) => {
   res.json({ ok: true, ...info, added: queries.generateDates(clinicId, candidates) });
 });
 
-app.delete('/api/admin/dates/past', requireAuth, (req, res) => {
+app.delete('/api/admin/dates/past', requireAuth, adminOnly, (req, res) => {
   try {
     const backup = createBackup();
     const deleted = queries.deletePastDates(toLocalISO(new Date()));
@@ -305,12 +422,12 @@ app.delete('/api/admin/dates/past', requireAuth, (req, res) => {
   }
 });
 
-app.delete('/api/admin/dates/:id', requireAuth, (req, res) => {
+app.delete('/api/admin/dates/:id', requireAuth, guardDate, (req, res) => {
   queries.deleteDate(Number(req.params.id));
   res.json({ ok: true });
 });
 
-app.patch('/api/admin/dates/:id/notified', requireAuth, (req, res) => {
+app.patch('/api/admin/dates/:id/notified', requireAuth, guardDate, (req, res) => {
   queries.setClinicNotified(Number(req.params.id), req.body.value);
   res.json({ ok: true });
 });
@@ -330,13 +447,59 @@ app.get('/api/admin/week', requireAuth, (req, res) => {
   endDate.setDate(endDate.getDate() + 6);
 
   const toISO = d => d.toISOString().slice(0, 10);
-  const dates = queries.getWeekDates(toISO(startDate), toISO(endDate));
+  const dates = queries.getWeekDates(toISO(startDate), toISO(endDate), scopeIds(req.user));
   res.json({ start: toISO(startDate), end: toISO(endDate), dates });
+});
+
+// ─── Gebruikers (alleen beheerder met volledige rechten) ────────────────────
+
+app.get('/api/admin/users', requireAuth, adminOnly, (req, res) => {
+  res.json(queries.listUsers());
+});
+
+app.post('/api/admin/users', requireAuth, adminOnly, (req, res) => {
+  const username = typeof req.body.username === 'string' ? req.body.username.trim() : '';
+  const { password } = req.body;
+  const role = req.body.role === 'admin' ? 'admin' : 'manager';
+  if (!/^[A-Za-z0-9._-]{3,40}$/.test(username)) {
+    return res.status(400).json({ error: 'Gebruikersnaam: 3 tot 40 tekens, alleen letters, cijfers, punt, streepje of underscore.' });
+  }
+  const problem = passwordProblem(password, username);
+  if (problem) return res.status(400).json({ error: problem });
+  if (queries.getUserByUsername(username)) {
+    return res.status(409).json({ error: 'Deze gebruikersnaam bestaat al.' });
+  }
+  const result = queries.createUser(username, bcrypt.hashSync(password, 10), role);
+  console.log(`Gebruiker aangemaakt: ${username} (${role}) door ${req.user.username}`);
+  res.json({ ok: true, id: result.lastInsertRowid });
+});
+
+app.post('/api/admin/users/:id/reset-password', requireAuth, adminOnly, (req, res) => {
+  const user = queries.getUserById(Number(req.params.id));
+  if (!user) return res.status(404).json({ error: 'Gebruiker niet gevonden.' });
+  const problem = passwordProblem(req.body.password, user.username);
+  if (problem) return res.status(400).json({ error: problem });
+  // Tijdelijk wachtwoord: de gebruiker moet het bij het volgende inloggen wijzigen.
+  queries.setPassword(user.id, bcrypt.hashSync(req.body.password, 10), true);
+  console.log(`Wachtwoord gereset: ${user.username} door ${req.user.username}`);
+  res.json({ ok: true });
+});
+
+app.delete('/api/admin/users/:id', requireAuth, adminOnly, (req, res) => {
+  const user = queries.getUserById(Number(req.params.id));
+  if (!user) return res.status(404).json({ error: 'Gebruiker niet gevonden.' });
+  if (req.user.id === user.id) return res.status(400).json({ error: 'Je kunt jezelf niet verwijderen.' });
+  if (user.role === 'admin' && queries.countAdmins() <= 1) {
+    return res.status(400).json({ error: 'De laatste beheerder met volledige rechten kan niet worden verwijderd.' });
+  }
+  queries.deleteUser(user.id);
+  console.log(`Gebruiker verwijderd: ${user.username} door ${req.user.username}`);
+  res.json({ ok: true });
 });
 
 // ─── Backups ───────────────────────────────────────────────────────────────
 
-app.get('/api/admin/backups', requireAuth, (req, res) => {
+app.get('/api/admin/backups', requireAuth, adminOnly, (req, res) => {
   ensureBackupDir();
   try {
     const files = fs.readdirSync(BACKUP_DIR)
@@ -352,7 +515,7 @@ app.get('/api/admin/backups', requireAuth, (req, res) => {
   }
 });
 
-app.post('/api/admin/backups', requireAuth, (req, res) => {
+app.post('/api/admin/backups', requireAuth, adminOnly, (req, res) => {
   try {
     const filename = createBackup();
     const stat = fs.statSync(path.join(BACKUP_DIR, filename));
@@ -363,7 +526,7 @@ app.post('/api/admin/backups', requireAuth, (req, res) => {
   }
 });
 
-app.get('/api/admin/backups/:filename', requireAuth, (req, res) => {
+app.get('/api/admin/backups/:filename', requireAuth, adminOnly, (req, res) => {
   const { filename } = req.params;
   if (!/^backup-[\d_-]+\.sql$/.test(filename)) {
     return res.status(400).json({ error: 'Ongeldig bestandsnaam.' });

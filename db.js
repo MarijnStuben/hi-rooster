@@ -69,6 +69,23 @@ function initDb() {
     console.log('Migratie: clinic_notified kolom toegevoegd');
   } catch (_) { /* kolom bestaat al */ }
 
+  // Migration: rollen. Bestaande gebruikers worden 'admin' (volledige rechten), zodat
+  // niemand toegang verliest. Nieuwe gebruikers krijgen standaard de rol 'manager'.
+  try {
+    db.exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'admin'");
+    console.log('Migratie: users.role kolom toegevoegd (bestaande gebruikers zijn admin)');
+  } catch (_) { /* kolom bestaat al */ }
+  try {
+    db.exec("ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0");
+    console.log('Migratie: users.must_change_password kolom toegevoegd');
+  } catch (_) { /* kolom bestaat al */ }
+
+  // Migration: verantwoordelijke (aanmelder) per kliniek
+  try {
+    db.exec("ALTER TABLE clinics ADD COLUMN manager_id INTEGER REFERENCES users(id) ON DELETE SET NULL");
+    console.log('Migratie: clinics.manager_id kolom toegevoegd');
+  } catch (_) { /* kolom bestaat al */ }
+
   // Alleen bij een lege gebruikerstabel een eerste beheerder aanmaken, en
   // alleen met een wachtwoord uit ADMIN_PASSWORD. Er is geen standaardwachtwoord.
   const userCount = db.prepare('SELECT COUNT(*) as n FROM users').get().n;
@@ -188,6 +205,13 @@ function seedData() {
 
 // ─── Queries ───────────────────────────────────────────────────────────────
 
+// Beperk een query tot bepaalde klinieken. ids = null betekent: alle klinieken.
+function clinicFilter(ids, column) {
+  if (ids === null || ids === undefined) return { sql: '', params: [] };
+  if (!ids.length) return { sql: ' AND 0', params: [] };
+  return { sql: ` AND ${column} IN (${ids.map(() => '?').join(',')})`, params: ids };
+}
+
 const queries = {
   // Public
   getClinics() {
@@ -246,7 +270,8 @@ const queries = {
   },
 
   // Admin – Queue
-  getQueue() {
+  getQueue(clinicIds = null) {
+    const f = clinicFilter(clinicIds, 'c.id');
     const regs = db.prepare(`
       SELECT r.id, r.created_at, r.status,
         d.id as date_id, d.date, d.status as date_status,
@@ -254,9 +279,9 @@ const queries = {
       FROM registrations r
       JOIN dates d ON d.id = r.date_id
       JOIN clinics c ON c.id = d.clinic_id
-      WHERE r.status = 'pending'
+      WHERE r.status = 'pending'${f.sql}
       ORDER BY d.date ASC, r.created_at ASC
-    `).all();
+    `).all(...f.params);
     const getPersons = db.prepare('SELECT * FROM persons WHERE registration_id = ? ORDER BY person_number');
     return regs.map(r => ({ ...r, persons: getPersons.all(r.id) }));
   },
@@ -280,8 +305,14 @@ const queries = {
   },
 
   // Admin – Clinics
-  getAllClinics() {
-    const clinics = db.prepare('SELECT * FROM clinics ORDER BY name').all();
+  getAllClinics(clinicIds = null) {
+    const f = clinicFilter(clinicIds, 'c.id');
+    const clinics = db.prepare(`
+      SELECT c.*, u.username AS manager_name
+      FROM clinics c LEFT JOIN users u ON u.id = c.manager_id
+      WHERE 1=1${f.sql}
+      ORDER BY c.name
+    `).all(...f.params);
     const getDates = db.prepare(`
       SELECT d.id, d.date, d.status,
         r.id as reg_id,
@@ -298,14 +329,17 @@ const queries = {
 
   createClinic(data) {
     return db.prepare(
-      'INSERT INTO clinics (name, address, frequency, time, contact_name, contact_info, allow_public_signup) VALUES (?,?,?,?,?,?,?)'
-    ).run(data.name, data.address || '', data.frequency || '', data.time || '', data.contact_name || '', data.contact_info || '', data.allow_public_signup !== false ? 1 : 0);
+      'INSERT INTO clinics (name, address, frequency, time, contact_name, contact_info, allow_public_signup, manager_id) VALUES (?,?,?,?,?,?,?,?)'
+    ).run(data.name, data.address || '', data.frequency || '', data.time || '', data.contact_name || '', data.contact_info || '', data.allow_public_signup !== false ? 1 : 0, data.manager_id || null);
   },
 
   updateClinic(id, data) {
+    // manager_id niet meegestuurd = ongewijzigd laten
+    const existing = db.prepare('SELECT manager_id FROM clinics WHERE id = ?').get(id);
+    const managerId = data.manager_id === undefined ? (existing ? existing.manager_id : null) : (data.manager_id || null);
     return db.prepare(
-      'UPDATE clinics SET name=?, address=?, frequency=?, time=?, contact_name=?, contact_info=?, allow_public_signup=? WHERE id=?'
-    ).run(data.name, data.address || '', data.frequency || '', data.time || '', data.contact_name || '', data.contact_info || '', data.allow_public_signup !== false ? 1 : 0, id);
+      'UPDATE clinics SET name=?, address=?, frequency=?, time=?, contact_name=?, contact_info=?, allow_public_signup=?, manager_id=? WHERE id=?'
+    ).run(data.name, data.address || '', data.frequency || '', data.time || '', data.contact_name || '', data.contact_info || '', data.allow_public_signup !== false ? 1 : 0, managerId, id);
   },
 
   deleteClinic(id) {
@@ -356,7 +390,8 @@ const queries = {
     db.prepare('UPDATE dates SET clinic_notified = ? WHERE id = ?').run(value ? 1 : 0, dateId);
   },
 
-  getWeekDates(startISO, endISO) {
+  getWeekDates(startISO, endISO, clinicIds = null) {
+    const f = clinicFilter(clinicIds, 'c.id');
     const dates = db.prepare(`
       SELECT d.id, d.date, d.status, d.clinic_notified,
         c.id as clinic_id, c.name as clinic_name, c.address, c.time,
@@ -365,9 +400,9 @@ const queries = {
       FROM dates d
       JOIN clinics c ON c.id = d.clinic_id
       LEFT JOIN registrations r ON r.date_id = d.id AND r.status = 'approved'
-      WHERE d.date >= ? AND d.date <= ?
+      WHERE d.date >= ? AND d.date <= ?${f.sql}
       ORDER BY d.date ASC, c.name ASC
-    `).all(startISO, endISO);
+    `).all(startISO, endISO, ...f.params);
 
     const getPersons = db.prepare('SELECT * FROM persons WHERE registration_id = ? ORDER BY person_number');
     return dates.map(d => ({
@@ -390,7 +425,52 @@ const queries = {
 
   // Auth
   getUserByUsername(username) {
-    return db.prepare('SELECT * FROM users WHERE username = ?').get(username);
+    return db.prepare('SELECT * FROM users WHERE username = ? COLLATE NOCASE').get(username);
+  },
+
+  getUserById(id) {
+    return db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+  },
+
+  listUsers() {
+    const users = db.prepare('SELECT id, username, role, must_change_password FROM users ORDER BY username COLLATE NOCASE').all();
+    const getClinics = db.prepare('SELECT id, name FROM clinics WHERE manager_id = ? ORDER BY name');
+    return users.map(u => ({ ...u, clinics: getClinics.all(u.id) }));
+  },
+
+  createUser(username, passwordHash, role) {
+    return db.prepare('INSERT INTO users (username, password_hash, role, must_change_password) VALUES (?,?,?,1)')
+      .run(username, passwordHash, role);
+  },
+
+  setPassword(id, passwordHash, mustChange) {
+    return db.prepare('UPDATE users SET password_hash = ?, must_change_password = ? WHERE id = ?')
+      .run(passwordHash, mustChange ? 1 : 0, id);
+  },
+
+  countAdmins() {
+    return db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin'").get().n;
+  },
+
+  deleteUser(id) {
+    db.transaction(() => {
+      db.prepare('UPDATE clinics SET manager_id = NULL WHERE manager_id = ?').run(id);
+      db.prepare('DELETE FROM users WHERE id = ?').run(id);
+    })();
+  },
+
+  getManagedClinics(userId) {
+    return db.prepare('SELECT id, name FROM clinics WHERE manager_id = ? ORDER BY name').all(userId);
+  },
+
+  getClinicIdForDate(dateId) {
+    const r = db.prepare('SELECT clinic_id FROM dates WHERE id = ?').get(dateId);
+    return r ? r.clinic_id : null;
+  },
+
+  getClinicIdForRegistration(regId) {
+    const r = db.prepare('SELECT d.clinic_id FROM registrations r JOIN dates d ON d.id = r.date_id WHERE r.id = ?').get(regId);
+    return r ? r.clinic_id : null;
   },
 
   getRegistrationById(id) {
