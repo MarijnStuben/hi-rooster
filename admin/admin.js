@@ -133,6 +133,7 @@ async function switchView(view) {
   });
   document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
   document.getElementById(`view-${view}`).classList.remove('hidden');
+  window.scrollTo(0, 0);
 
   if (view === 'queue') loadQueue();
   else if (view === 'clinics') loadClinics();
@@ -154,17 +155,27 @@ function experienceHtml(x) {
     <span class="exp-count">Voorlichting gegeven PI: <strong>${x.pi}</strong></span></div>`;
 }
 
+// Bij verversen (bijvoorbeeld na het sluiten van een venster) blijft de huidige lijst staan en blijft
+// de pagina op dezelfde plek. Alleen de eerste keer wordt "Laden…" getoond.
+function beginLoad(el) {
+  const keep = el.children.length > 0 && !el.querySelector('.empty-state');
+  const y = window.scrollY;
+  if (!keep) el.innerHTML = '<div style="color:var(--grey);padding:20px">Laden…</div>';
+  return () => { if (keep) window.scrollTo(0, y); };
+}
+
 // ─── Queue ───────────────────────────────────────────────────────────────────
 async function loadQueue() {
   const el = document.getElementById('queue-content');
   if (hasNoClinics()) { el.innerHTML = noClinicsHtml(); updateQueueBadge(0); return; }
-  el.innerHTML = '<div style="color:var(--grey);padding:20px">Laden…</div>';
+  const done = beginLoad(el);
   try {
     const res = await fetch('/api/admin/queue');
     if (!res.ok) return;
     const items = await res.json();
     renderQueue(items);
     updateQueueBadge(items.length);
+    done();
   } catch {
     el.innerHTML = '<div style="color:var(--red)">Fout bij laden van wachtrij.</div>';
   }
@@ -253,12 +264,13 @@ async function rejectReg(id) {
 async function loadClinics() {
   const el = document.getElementById('clinics-content');
   if (hasNoClinics()) { el.innerHTML = noClinicsHtml(); return; }
-  el.innerHTML = '<div style="color:var(--grey);padding:20px">Laden…</div>';
+  const done = beginLoad(el);
   try {
     const res = await fetch('/api/admin/clinics');
     if (!res.ok) return;
     const clinics = await res.json();
     renderClinics(clinics);
+    done();
   } catch {
     el.innerHTML = '<div style="color:var(--red)">Fout bij laden van klinieken.</div>';
   }
@@ -651,19 +663,21 @@ document.getElementById('week-prev').addEventListener('click', () => {
   if (!currentWeekStart) return;
   const d = new Date(currentWeekStart);
   d.setDate(d.getDate() - 7);
+  window.scrollTo(0, 0);
   loadWeek(toISO(d));
 });
 document.getElementById('week-next').addEventListener('click', () => {
   if (!currentWeekStart) return;
   const d = new Date(currentWeekStart);
   d.setDate(d.getDate() + 7);
+  window.scrollTo(0, 0);
   loadWeek(toISO(d));
 });
 
 async function loadWeek(startISO) {
   const el = document.getElementById('week-content');
   if (hasNoClinics()) { el.innerHTML = noClinicsHtml(); document.getElementById('week-label').textContent = ''; return; }
-  el.innerHTML = '<div style="color:var(--grey);padding:20px">Laden…</div>';
+  const done = beginLoad(el);
 
   const url = startISO ? `/api/admin/week?start=${startISO}` : '/api/admin/week';
   try {
@@ -672,6 +686,7 @@ async function loadWeek(startISO) {
     const data = await res.json();
     currentWeekStart = data.start;
     renderWeek(data);
+    done();
   } catch {
     el.innerHTML = '<div style="color:var(--red)">Fout bij laden.</div>';
   }
@@ -825,11 +840,12 @@ function copyContactInfo(el) {
 // ─── Backups ─────────────────────────────────────────────────────────────────
 async function loadBackups() {
   const el = document.getElementById('backups-content');
-  el.innerHTML = '<div style="color:var(--grey);padding:20px">Laden…</div>';
+  const done = beginLoad(el);
   try {
     const res = await fetch('/api/admin/backups');
     const backups = await res.json();
     renderBackups(backups);
+    done();
   } catch {
     el.innerHTML = '<div style="color:var(--red)">Fout bij laden van backups.</div>';
   }
@@ -894,12 +910,13 @@ let educatorsData = [];
 
 async function loadEducators() {
   const el = document.getElementById('educators-content');
-  el.innerHTML = '<div style="color:var(--grey);padding:20px">Laden…</div>';
+  const done = beginLoad(el);
   try {
     const res = await fetch('/api/admin/educators');
     if (!res.ok) return;
     educatorsData = await res.json();
     renderEducators();
+    done();
   } catch {
     el.innerHTML = '<div style="color:var(--red)">Fout bij laden van voorlichters.</div>';
   }
@@ -1033,11 +1050,12 @@ async function deleteEducatorProfile() {
 // ─── Gebruikers (alleen beheerder) ──────────────────────────────────────────
 async function loadUsers() {
   const el = document.getElementById('users-content');
-  el.innerHTML = '<div style="color:var(--grey);padding:20px">Laden…</div>';
+  const done = beginLoad(el);
   try {
     const res = await fetch('/api/admin/users');
     if (!res.ok) return;
     renderUsers(await res.json());
+    done();
   } catch {
     el.innerHTML = '<div style="color:var(--red)">Fout bij laden van gebruikers.</div>';
   }

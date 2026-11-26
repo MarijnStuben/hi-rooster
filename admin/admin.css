@@ -472,6 +472,7 @@ body {
   padding: 20px;
   z-index: 100;
   overflow-y: auto;
+  overscroll-behavior: contain; /* scrollen in een venster schuift de pagina erachter niet mee */
 }
 .modal-overlay.hidden { display: none; }
 .modal {
